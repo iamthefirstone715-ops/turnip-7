@@ -11,7 +11,7 @@ export const abi = parseAbi([
 const PENDING = 1;
 
 /** Watches BillRequested, asks the provider to deliver, then fulfills or refunds on-chain. */
-export function createWorker({ publicClient, walletClient, billPay, provider, cursorFile, startBlock, range = 100n, log = console.log }) {
+export function createWorker({ publicClient, walletClient, billPay, provider, cursorFile, startBlock, range = 100n, concurrency = 8, log = console.log }) {
   const inflight = new Set();
   let queue = Promise.resolve();
 
@@ -68,11 +68,18 @@ export function createWorker({ publicClient, walletClient, billPay, provider, cu
     if (cursor === undefined) cursor = (startBlock ?? head) - 1n;
     const jobs = [];
     while (cursor < head) {
-      const from = cursor + 1n;
-      const to = from + range - 1n > head ? head : from + range - 1n;
-      const logs = await publicClient.getContractEvents({ address: billPay, abi, eventName: "BillRequested", fromBlock: from, toBlock: to });
-      for (const ev of logs) jobs.push((queue = queue.then(() => process(ev)))); // one tx at a time: operator nonce
-      cursor = to;
+      const ranges = []; // public RPC caps getLogs at 100 blocks, so fetch several ranges at once to catch up fast
+      for (let c = cursor; c < head && ranges.length < concurrency; ) {
+        const from = c + 1n;
+        const to = from + range - 1n > head ? head : from + range - 1n;
+        ranges.push([from, to]);
+        c = to;
+      }
+      const batches = await Promise.all(
+        ranges.map(([fromBlock, toBlock]) => publicClient.getContractEvents({ address: billPay, abi, eventName: "BillRequested", fromBlock, toBlock })),
+      );
+      for (const ev of batches.flat()) jobs.push((queue = queue.then(() => process(ev)))); // one tx at a time: operator nonce
+      cursor = ranges[ranges.length - 1][1];
       save(cursor);
     }
     await Promise.all(jobs);

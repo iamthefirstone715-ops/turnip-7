@@ -32,6 +32,7 @@ Everything below was run, not assumed.
 - **Live paymaster:** a new account holding 0 MON sent USDC through Pimlico's bundler on Monad testnet and paid 4,747 base units (about $0.0047) in gas. Script: `worker/paymaster-smoke.mjs`. Tx `0x7b9dee02910a6b4b5df7a585aae0f69f5ba279a8fc02c97b4eda0cf95a9973f1`.
 - **Full user flow in a browser (testnet):** login, wallet creation, funding, claiming a username on-chain, dashboard showing name and balance, and a $1 airtime payment that went into escrow.
 - **Bill settlement:** the worker settled that order on-chain. The order is fulfilled, the treasury received the $1, and the escrow is empty.
+- **Real bill via VTpass sandbox:** order #2 (electricity, $1.50) was placed on-chain from a 0-MON account (`worker/bill-smoke.mjs`), the worker bought it from the VTpass sandbox, and the delivered token `26362054405982757802` is the on-chain fulfilment reference. The treasury received the USDC and the escrow is empty. Airtime and DSTV also return `delivered` from the sandbox directly.
 - **Worker end-to-end:** `npm run test:worker` runs a local chain with real contracts. It covers a delivered bill, a rejected bill that is refunded, an empty escrow afterwards, and an idempotent restart.
 
 ## Deployed (Monad testnet)
@@ -46,7 +47,7 @@ Everything below was run, not assumed.
 ## Limits, stated plainly
 
 - **Testnet only.** On mainnet the paymaster would be Pimlico's ERC-20 paymaster, which accepts USDC on Monad (confirmed live). Our own paymaster uses a fixed USDC/MON rate with no price feed.
-- **Bills run on a mock provider by default.** A VTpass sandbox adapter is written and unit tested. A sandbox account exists and its keys authenticate (the balance call works), but `/pay` is rejected with code 028 "product not whitelisted" even after whitelisting products in the dashboard, so real delivery has not been run. Gift cards and international airtime are not implemented.
+- **Bills:** the worker defaults to a mock provider; set `PROVIDER=vtpass` for the VTpass sandbox, which has been run end to end (below). Only airtime, data, electricity and TV are wired, with one default product each (MTN, MTN data, Ikeja Electric, DSTV). Gift cards and international airtime are not implemented. Amounts convert at a fixed 1,500 NGN per USD.
 - **Operator trust.** If the worker is down or cannot settle after the provider delivered, the payer can reclaim after 1 hour and keep the bill. The worker retries settlement to reduce this.
 - **Activity history is stored in the browser.** The public RPC limits `getLogs` to about 100 blocks, so the dashboard keeps its own record of sends, bills and incoming funds.
 - **Not tested:** Google login (email login was), and sending between two real users.
