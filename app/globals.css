@@ -24,3 +24,97 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(24px); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.92); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes pop-in {
+  0% { opacity: 0; transform: scale(0.8); }
+  60% { opacity: 1; transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.45); }
+  50% { box-shadow: 0 0 0 10px rgba(124, 58, 237, 0); }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes letter-in {
+  from { opacity: 0; transform: translateY(0.6em) rotate(6deg); }
+  to { opacity: 1; transform: none; }
+}
+
+/* backwards fill: hidden during delay, released after so :hover transforms still apply */
+.anim-fade-up { animation: fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.anim-scale-in { animation: scale-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.anim-pop { animation: pop-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.anim-fade { animation: fade-in 0.3s ease backwards; }
+.anim-glow { animation: glow 2.4s ease-in-out infinite; }
+.anim-float { animation: float 4s ease-in-out infinite; }
+.letter { display: inline-block; animation: letter-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.shimmer-text {
+  background: linear-gradient(90deg, #2e1065 0%, #2e1065 40%, #a06bff 50%, #2e1065 60%, #2e1065 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 4s linear infinite;
+}
+
+.btn {
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.btn:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.12); box-shadow: 0 8px 20px rgba(76, 29, 149, 0.35); }
+.btn:active:not(:disabled) { transform: scale(0.96); }
+
+.row-hover { transition: transform 0.2s ease, background 0.2s ease; border-radius: 10px; }
+.row-hover:hover { transform: translateX(4px); background: rgba(255, 255, 255, 0.35); }
+
+.page-fade { animation: fade-in 0.4s ease both; }
+
+@keyframes burst {
+  0% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0.4) rotate(var(--rot)); }
+}
+.confetti {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: burst 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(91, 63, 163, 0.3);
+  border-top-color: #5b3fa3;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
