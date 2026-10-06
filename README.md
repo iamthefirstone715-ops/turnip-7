@@ -46,7 +46,7 @@ Everything below was run, not assumed.
 ## Limits, stated plainly
 
 - **Testnet only.** On mainnet the paymaster would be Pimlico's ERC-20 paymaster, which accepts USDC on Monad (confirmed live). Our own paymaster uses a fixed USDC/MON rate with no price feed.
-- **Bills run on a mock provider by default.** A VTpass sandbox adapter is written and unit tested, but has not been run against VTpass itself. Gift cards and international airtime are not implemented.
+- **Bills run on a mock provider by default.** A VTpass sandbox adapter is written and unit tested. A sandbox account exists and its keys authenticate (the balance call works), but `/pay` is rejected with code 028 "product not whitelisted" even after whitelisting products in the dashboard, so real delivery has not been run. Gift cards and international airtime are not implemented.
 - **Operator trust.** If the worker is down or cannot settle after the provider delivered, the payer can reclaim after 1 hour and keep the bill. The worker retries settlement to reduce this.
 - **Activity history is stored in the browser.** The public RPC limits `getLogs` to about 100 blocks, so the dashboard keeps its own record of sends, bills and incoming funds.
 - **Not tested:** Google login (email login was), and sending between two real users.
