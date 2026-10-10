@@ -28,9 +28,9 @@ const select: CSSProperties = { ...field, cursor: "pointer", appearance: "auto" 
 export default function Profile() {
   const router = useRouter();
   const { address, authenticated, ready, exec } = useWallet();
-  const [category, setCategory] = useState<Category>("airtime");
-  const [provider, setProvider] = useState(CATEGORIES.airtime.providers[0].id);
-  const [plan, setPlan] = useState("");
+  const [category, setCategory] = useState<Category>("electricity");
+  const [provider, setProvider] = useState(CATEGORIES.electricity.providers[0].id);
+  const [plan, setPlan] = useState(CATEGORIES.electricity.staticPlans?.[0]?.code ?? "");
   const [account, setAccount] = useState("");
   const [saved, setSaved] = useState<{ key: string; detail?: Saved }>({ key: "" });
   const [busy, setBusy] = useState<"" | "save" | "remove">("");
@@ -112,12 +112,12 @@ export default function Profile() {
       <GlassCard>
         <h1 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 700, color: "#2e1065", textAlign: "center" }}>My bill details</h1>
         <p style={{ margin: "0 0 16px", fontSize: 12, color: "#5b3fa3", textAlign: "center", lineHeight: 1.45 }}>
-          Friends can pay these for you with your @name. Saved details are <strong>public on-chain</strong>, so don&apos;t save a number you want
-          private.
+          Friends can pay your electricity or TV with your @name. Saved details are <strong>public on-chain</strong>, so don&apos;t save a number you
+          want private. Airtime and data need a phone number, so those are never saved.
         </p>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 16 }}>
-          {(Object.keys(CATEGORIES) as Category[]).map((id) => (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6, marginBottom: 16 }}>
+          {(Object.keys(CATEGORIES) as Category[]).filter((id) => CATEGORIES[id].saveable).map((id) => (
             <button
               key={id}
               onClick={() => pickCategory(id)}

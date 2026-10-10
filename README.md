@@ -10,7 +10,7 @@ A crypto wallet can't pay a normal bill, and a new user can't even send USDC wit
 
 - **One balance.** Users hold USDC only. The network fee is charged in USDC, so nobody ever needs MON.
 - **Names, not addresses.** Sign in with Google or email, claim `@name`, send to `@name`.
-- **Bills.** Pay airtime, data, electricity or TV, for yourself or for someone else's `@name`. Save your own bill details once (Dashboard, Bill details); when a friend types `For @yourname`, the network, meter type and number fill in automatically. The money sits in escrow and only reaches us if the provider delivers. Otherwise it comes back.
+- **Bills.** Pay airtime, data, electricity or TV, for yourself or for someone else's `@name`. Save your electricity or TV details once (Dashboard, Bill details); when a friend types `For @yourname`, the distribution company, meter type and number fill in automatically. Airtime and data need a phone number, so those are never saved: the payer types it. The money sits in escrow and only reaches us if the provider delivers. Otherwise it comes back.
 
 ## How it works
 
@@ -18,7 +18,7 @@ A crypto wallet can't pay a normal bill, and a new user can't even send USDC wit
 |---|---|
 | `UsernameRegistry` | On-chain `@name` to smart-account address. One name per address, a-z 0-9 _ , 3 to 20 chars. |
 | `USDCPaymaster` | ERC-4337 v0.7 paymaster. Fronts the MON for gas, then charges the account in USDC after the call. |
-| `BillProfile` | Each account can publish one saved bill detail per category (provider, meter type, phone/meter/smartcard number). Public by design, so paying for someone else can autofill them. |
+| `BillProfile` | Each account can publish one saved bill detail per category (provider, meter type, meter/smartcard number). Public by design, so paying for someone else can autofill them. The contract accepts any category, but the app only saves electricity and TV. |
 | `BillPay` | Escrows USDC per bill order. The operator can release it to the treasury only with a delivery reference, or refund it. The payer can reclaim after 1 hour. |
 | Worker (`worker/`) | Watches `BillRequested`, asks the bill provider to deliver, then calls `fulfill` or `refund` on-chain. |
 | App (`app/`) | Next.js. Privy login creates an embedded wallet that owns a smart account (permissionless + Pimlico bundler). |
@@ -50,7 +50,7 @@ Everything below was run, not assumed.
 
 - **Testnet only.** On mainnet the paymaster would be Pimlico's ERC-20 paymaster, which accepts USDC on Monad (confirmed live). Our own paymaster uses a fixed USDC/MON rate with no price feed.
 - **Bills:** the worker defaults to a mock provider; set `PROVIDER=vtpass` for the VTpass sandbox, which has been run end to end (below). Airtime, data, electricity and TV are wired. The payer picks the network, distribution company or TV provider, and for data and TV a plan whose price is fetched live from VTpass; the choice travels on-chain in `billType` as `category:provider[:plan]`. A plan paid for with too little is refunded without contacting the provider. Gift cards and international airtime are not implemented. Amounts convert at a fixed 1,500 NGN per USD.
-- **Saved bill details are public on-chain.** That is what lets anyone pay for you, so the save page warns not to store a number you want private. Meter and smartcard numbers are harmless to publish; phone numbers are personal data.
+- **Saved bill details are public on-chain.** That is what lets anyone pay for you, so the save page warns not to store a number you want private. Meter and smartcard numbers are harmless to publish; phone numbers are personal data, which is why airtime and data are never saved.
 - **Operator trust.** If the worker is down or cannot settle after the provider delivered, the payer can reclaim after 1 hour and keep the bill. The worker retries settlement to reduce this.
 - **Activity history is stored in the browser.** The public RPC limits `getLogs` to about 100 blocks, so the dashboard keeps its own record of sends, bills and incoming funds.
 - **Not tested:** Google login (email login was), and sending between two real users.

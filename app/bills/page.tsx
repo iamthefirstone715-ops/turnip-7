@@ -104,6 +104,7 @@ export default function Bills() {
         const owner = await publicClient.readContract({ address: ADDR.registry, abi: registryAbi, functionName: "resolve", args: [forWho] });
         if (!live) return;
         if (owner === zeroAddress) return setLookup({ key, status: "no-user" });
+        if (!CATEGORIES[category].saveable) return setLookup({ key, status: "empty" }); // phone-based: nothing is ever saved
         const d = await publicClient.readContract({ address: ADDR.profile, abi: profileAbi, functionName: "get", args: [owner, category] });
         if (!live) return;
         const usable = d.account && CATEGORIES[category].providers.some((p) => p.id === d.provider);
@@ -310,7 +311,9 @@ export default function Bills() {
                 ? `@${forWho} doesn't exist.`
                 : found
                   ? `Using @${forWho}'s saved ${bill.label.toLowerCase()} details.`
-                  : `@${forWho} hasn't saved ${bill.label.toLowerCase()} details, so enter them below.`}
+                  : bill.saveable
+                    ? `@${forWho} hasn't saved ${bill.label.toLowerCase()} details, so enter them below.`
+                    : `Enter @${forWho}'s phone number below.`}
         </p>
 
         <select value={effProvider} onChange={(e) => pickProvider(e.target.value)} aria-label={bill.providerLabel} disabled={!!found} style={select}>
