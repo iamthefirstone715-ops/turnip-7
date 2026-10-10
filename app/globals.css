@@ -26,12 +26,12 @@ body {
 }
 
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(24px); filter: blur(6px); }
-  to { opacity: 1; transform: none; filter: none; }
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
 }
 @keyframes scale-in {
-  from { opacity: 0; transform: scale(0.92); filter: blur(8px); }
-  to { opacity: 1; transform: none; filter: none; }
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
 }
 @keyframes pop-in {
   0% { opacity: 0; transform: scale(0.8); }
@@ -86,6 +86,31 @@ body {
 .row-hover { transition: transform 0.2s ease, background 0.2s ease; border-radius: 10px; }
 .row-hover:hover { transform: translateX(4px); background: rgba(255, 255, 255, 0.35); }
 
+.word {
+  display: inline-block;
+  animation: word-assemble 1.15s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  will-change: transform, opacity;
+}
+.word.shimmer-text {
+  animation: word-assemble 1.15s cubic-bezier(0.16, 1, 0.3, 1) backwards, shimmer 4s linear infinite;
+}
+@keyframes word-assemble {
+  0% {
+    opacity: 0;
+    transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(0.7);
+    animation-timing-function: ease-out;
+  }
+  35% {
+    opacity: 1;
+    transform: translate(calc(var(--x) * 0.8), calc(var(--y) * 0.8 - 10px)) rotate(calc(var(--r) * 0.8)) scale(0.92);
+    animation-timing-function: cubic-bezier(0.34, 1.35, 0.6, 1);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .page-fade { animation: fade-in 0.4s ease both; }
 
 @keyframes burst {
@@ -117,4 +142,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+input::placeholder {
+  color: rgba(46, 16, 101, 0.55);
+  opacity: 1;
 }

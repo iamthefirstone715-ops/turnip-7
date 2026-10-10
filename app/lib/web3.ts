@@ -12,6 +12,7 @@ export const ADDR = {
   registry: process.env.NEXT_PUBLIC_REGISTRY as Address,
   billPay: process.env.NEXT_PUBLIC_BILLPAY as Address,
   paymaster: process.env.NEXT_PUBLIC_PAYMASTER as Address,
+  profile: process.env.NEXT_PUBLIC_PROFILE as Address,
 };
 
 const PIMLICO_KEY = process.env.NEXT_PUBLIC_PIMLICO_KEY;
@@ -30,6 +31,11 @@ export const registryAbi = parseAbi([
   "function register(string name)",
   "function resolve(string name) view returns (address)",
   "function nameOf(address) view returns (string)",
+]);
+export const profileAbi = parseAbi([
+  "function set(string category, string provider, string plan, string account)",
+  "function clear(string category)",
+  "function get(address owner, string category) view returns ((string provider, string plan, string account))",
 ]);
 export const billPayAbi = parseAbi([
   "function pay(string billType, string account, uint96 amount, string beneficiary) returns (uint256)",
@@ -76,3 +82,9 @@ export type SmartClient = Awaited<ReturnType<typeof makeSmartClient>>;
 /** 6-decimal USDC base units to "$12.34". */
 export const fmtUsd = (v: bigint) => `$${(Number(v) / 1e6).toFixed(2)}`;
 export const toUnits = (usd: string) => BigInt(Math.round(parseFloat(usd) * 1e6));
+
+/** Keeps digits and one dot, max 2 decimals: no negatives, no exponent, no spinner. */
+export const cleanAmount = (v: string) => {
+  const [whole, ...rest] = v.replace(/[^\d.]/g, "").split(".");
+  return rest.length ? `${whole}.${rest.join("").slice(0, 2)}` : whole;
+};

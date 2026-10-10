@@ -12,12 +12,12 @@ export default function GlassCard({ children }: { children: ReactNode }) {
         width: 340,
         padding: "32px 28px",
         borderRadius: 20,
-        background: "rgba(255, 255, 255, 0.08)",
-        border: "1px solid rgba(255, 255, 255, 0.4)",
+        background: "rgba(255, 255, 255, 0.32)",
+        border: "1px solid rgba(255, 255, 255, 0.85)",
         backdropFilter: "blur(2px)",
         WebkitBackdropFilter: "blur(2px)",
         boxShadow:
-          "0 20px 50px rgba(122, 60, 220, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.5)",
+          "0 24px 60px rgba(76, 29, 149, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.8)",
         fontFamily: "system-ui, sans-serif",
       }}
     >

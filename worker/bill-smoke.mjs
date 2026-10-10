@@ -27,7 +27,7 @@ const funder = privateKeyToAccount(process.env.DEPLOYER_KEY);
 const owner = privateKeyToAccount(generatePrivateKey());
 const account = await toSimpleSmartAccount({ client: pub, owner, entryPoint: { address: entryPoint07Address, version: "0.7" } });
 await pub.waitForTransactionReceipt({
-  hash: await createWalletClient({ chain, transport: http(), account: funder }).writeContract({ address: USDC, abi: erc, functionName: "transfer", args: [account.address, 5_000_000n] }),
+  hash: await createWalletClient({ chain, transport: http(), account: funder }).writeContract({ address: USDC, abi: erc, functionName: "transfer", args: [account.address, BigInt(Math.round(Number(usd) * 1e6)) + 100_000n] }),
 });
 
 const pm = async () => ({ paymaster: PM, paymasterData: "0x", paymasterVerificationGasLimit: 100_000n, paymasterPostOpGasLimit: 100_000n });

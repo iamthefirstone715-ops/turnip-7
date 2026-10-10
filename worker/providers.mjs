@@ -5,13 +5,15 @@
 
 const NGN_PER_USD = Number(process.env.NGN_PER_USD ?? 1500); // ponytail: fixed demo rate, use a live FX feed for production
 
-// ponytail: one default product per bill type; extend with a lookup table for more networks/discos/bouquets
-const VTPASS_PRODUCTS = {
-  airtime: { serviceID: "mtn" },
-  data: { serviceID: "mtn-data", variation_code: "mtn-10mb-100" },
-  electricity: { serviceID: "ikeja-electric", variation_code: "prepaid" },
-  tv: { serviceID: "dstv", variation_code: "dstv-padi", subscription_type: "change" },
-};
+// billType on-chain is "category:provider[:plan]", e.g. "airtime:glo" or "data:mtn-data:mtn-10mb-100"
+// (built by app/lib/bills.ts). A bare category still works and falls back to a default provider.
+const DEFAULT_SERVICE = { airtime: "mtn", data: "mtn-data", electricity: "ikeja-electric", tv: "dstv" };
+const PHONE = /^0d{10}$/;
+
+export function parseBill(billType) {
+  const [category, serviceID, variation] = String(billType).split(":");
+  return { category, serviceID: serviceID || DEFAULT_SERVICE[category], variation };
+}
 
 // VTpass requires request_id to start with YYYYMMDDHHmm in Africa/Lagos time.
 function vtpassRequestId(orderId) {
@@ -41,6 +43,15 @@ export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, sec
     return res.json();
   };
 
+  // Public endpoint; VTpass has shipped this key with both spellings.
+  const planFor = async (serviceID, code) => {
+    const res = await fetchImpl(`${baseUrl}/service-variations?serviceID=${serviceID}`);
+    const c = (await res.json())?.content ?? {};
+    const matches = (c.variations ?? c.varations ?? []).filter((x) => x.variation_code === code);
+    // Reused codes are ambiguous (different products, different prices), so refuse them.
+    return matches.length === 1 ? { ngn: Number(matches[0].variation_amount) } : undefined;
+  };
+
   const classify = (j) => {
     const status = j?.content?.transactions?.status;
     if (j?.code === "000" && status === "delivered") {
@@ -55,11 +66,30 @@ export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, sec
 
   return {
     async fulfill(order) {
-      const product = VTPASS_PRODUCTS[order.billType];
-      if (!product) return { ok: false, reason: `unsupported bill type ${order.billType}` };
+      const { category, serviceID, variation } = parseBill(order.billType);
+      if (!DEFAULT_SERVICE[category]) return { ok: false, reason: `unsupported bill type ${order.billType}` };
       const request_id = vtpassRequestId(order.id);
-      const amount = Math.max(1, Math.round(order.usd * NGN_PER_USD));
-      const body = { request_id, ...product, amount, phone: order.account, billersCode: order.account };
+      const paidNgn = Math.max(1, Math.round(order.usd * NGN_PER_USD));
+      // VTpass wants a contact phone on every purchase; meter and smartcard orders have a different account.
+      const phone = PHONE.test(order.account) ? order.account : (process.env.VTPASS_PHONE ?? "08011111111");
+      let body = { request_id, serviceID, phone };
+
+      if (category === "airtime") body = { ...body, amount: paidNgn };
+      else if (category === "electricity") {
+        body = { ...body, billersCode: order.account, variation_code: variation || "prepaid", amount: paidNgn };
+      } else {
+        // Data and TV plans have a fixed price: charge exactly the plan, and refund if the payer sent less.
+        let plan;
+        try {
+          plan = await planFor(serviceID, variation);
+        } catch {
+          return { ok: false, reason: "could not look up the plan" }; // nothing was sent to the provider yet
+        }
+        if (!plan) return { ok: false, reason: `unknown plan ${variation}` };
+        if (paidNgn < plan.ngn - 1) return { ok: false, reason: `underpaid: sent ₦${paidNgn}, plan costs ₦${plan.ngn}` };
+        body = { ...body, billersCode: order.account, variation_code: variation, amount: plan.ngn };
+        if (category === "tv") body.subscription_type = "change";
+      }
       let j;
       try {
         j = await call("/pay", body);
@@ -84,7 +114,7 @@ export function mock() {
       await new Promise((x) => setTimeout(x, 1500));
       if (order.account.startsWith("000")) return { ok: false, reason: "mock: number rejected" };
       const ref =
-        order.billType === "electricity"
+        order.billType.startsWith("electricity")
           ? `Token: ${Math.floor(1e15 + Math.random() * 9e15)}`
           : `MOCK-${order.id}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
       return { ok: true, ref };

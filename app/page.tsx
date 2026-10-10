@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import DotCanvas from "./components/DotCanvas";
 
@@ -26,21 +26,17 @@ const pings = [
   { from: "priya", amount: "25.00" },
 ];
 
-function Letters({ text, start = 0 }: { text: string; start?: number }) {
-  return (
-    <>
-      {text.split("").map((ch, i) => (
-        <span
-          key={i}
-          className="letter"
-          style={{ animationDelay: `${start + i * 0.03}s` }}
-        >
-          {ch === " " ? " " : ch}
-        </span>
-      ))}
-    </>
-  );
-}
+// Each word starts offset (x px, y px, rotation deg), drifts for a beat, then snaps into place.
+const WORDS = [
+  { text: "SEND", x: -160, y: -60, r: -10 },
+  { text: "MONEY", x: 40, y: -110, r: 6 },
+  { text: "TO", x: 170, y: -40, r: 10 },
+  { text: "A", x: -90, y: 90, r: -8 },
+  { text: "NAME,", x: 120, y: 80, r: 7, br: true },
+  { text: "NOT", x: -140, y: 70, r: -9, shimmer: true },
+  { text: "AN", x: 20, y: 110, r: 5, shimmer: true },
+  { text: "ADDRESS.", x: 150, y: -70, r: 8, shimmer: true },
+];
 
 export default function Landing() {
   const router = useRouter();
@@ -141,11 +137,24 @@ export default function Landing() {
             letterSpacing: 1,
           }}
         >
-          <Letters text="SEND MONEY TO A NAME," />
-          <br />
-          <span className="anim-fade-up" style={{ display: "inline-block", animationDelay: "0.7s" }}>
-            <span className="shimmer-text">NOT AN ADDRESS.</span>
-          </span>
+          {WORDS.map((w, i) => (
+            <Fragment key={w.text}>
+              <span
+                className={`word${w.shimmer ? " shimmer-text" : ""}`}
+                style={
+                  {
+                    "--x": `${w.x}px`,
+                    "--y": `${w.y}px`,
+                    "--r": `${w.r}deg`,
+                    animationDelay: `${0.15 + i * 0.08}s`,
+                  } as CSSProperties
+                }
+              >
+                {w.text}
+              </span>
+              {w.br ? <br /> : " "}
+            </Fragment>
+          ))}
         </h1>
         <p
           className="anim-fade-up"
@@ -154,7 +163,7 @@ export default function Landing() {
             fontSize: 17,
             color: "#5b3fa3",
             maxWidth: 480,
-            animationDelay: "1.1s",
+            animationDelay: "1.5s",
           }}
         >
           Claim a username. Get paid instantly. No wallets, no seed phrases.
@@ -166,7 +175,7 @@ export default function Landing() {
             display: "flex",
             gap: 12,
             justifyContent: "center",
-            animationDelay: "1.3s",
+            animationDelay: "1.65s",
           }}
         >
           <button
@@ -226,7 +235,7 @@ export default function Landing() {
               border: "1px solid rgba(255, 255, 255, 0.4)",
               backdropFilter: "blur(2px)",
               WebkitBackdropFilter: "blur(2px)",
-              animationDelay: `${1.5 + i * 0.15}s`,
+              animationDelay: `${1.8 + i * 0.12}s`,
             }}
           >
             <h3

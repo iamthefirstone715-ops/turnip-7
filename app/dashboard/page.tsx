@@ -122,6 +122,9 @@ export default function Dashboard() {
               >
                 {copied ? "Copied" : "Add funds"}
               </button>
+              <button onClick={() => router.push("/profile")} style={linkBtn}>
+                Bill details
+              </button>
               <button
                 onClick={() => logout().then(() => router.replace("/"))}
                 style={linkBtn}

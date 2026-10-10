@@ -8,7 +8,7 @@ import GlassCard from "../components/GlassCard";
 import Confetti from "../components/Confetti";
 import { useWallet } from "../providers";
 import { addEntry } from "../lib/history";
-import { ADDR, chain, fmtUsd, publicClient, registryAbi, toUnits, usdcAbi } from "../lib/web3";
+import { ADDR, chain, fmtUsd, publicClient, registryAbi, cleanAmount, toUnits, usdcAbi } from "../lib/web3";
 
 export default function Send() {
   const [to, setTo] = useState("");
@@ -138,8 +138,8 @@ export default function Send() {
             display: "flex",
             alignItems: "center",
             borderRadius: 10,
-            border: "1px solid rgba(255, 255, 255, 0.4)",
-            background: "rgba(255, 255, 255, 0.15)",
+            border: "1px solid rgba(76, 29, 149, 0.3)",
+            background: "rgba(255, 255, 255, 0.65)",
             marginBottom: 12,
             overflow: "hidden",
           }}
@@ -177,8 +177,8 @@ export default function Send() {
             display: "flex",
             alignItems: "center",
             borderRadius: 10,
-            border: "1px solid rgba(255, 255, 255, 0.4)",
-            background: "rgba(255, 255, 255, 0.15)",
+            border: "1px solid rgba(76, 29, 149, 0.3)",
+            background: "rgba(255, 255, 255, 0.65)",
             marginBottom: 8,
             overflow: "hidden",
           }}
@@ -194,9 +194,10 @@ export default function Send() {
             $
           </span>
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => setAmount(cleanAmount(e.target.value))}
             placeholder="0.00"
             style={{
               flex: 1,
@@ -233,7 +234,7 @@ export default function Send() {
             borderRadius: 10,
             border: "none",
             cursor: to && amount && status === "idle" ? "pointer" : "not-allowed",
-            opacity: to && amount ? 1 : 0.5,
+            opacity: to && amount ? 1 : 0.65,
             fontWeight: 600,
             fontSize: 15,
             color: "#fff",

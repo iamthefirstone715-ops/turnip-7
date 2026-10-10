@@ -80,8 +80,8 @@ export default function ClaimUsername() {
             display: "flex",
             alignItems: "center",
             borderRadius: 10,
-            border: "1px solid rgba(255, 255, 255, 0.4)",
-            background: "rgba(255, 255, 255, 0.15)",
+            border: "1px solid rgba(76, 29, 149, 0.3)",
+            background: "rgba(255, 255, 255, 0.65)",
             marginBottom: 8,
             overflow: "hidden",
             animationDelay: "0.2s",
@@ -174,7 +174,7 @@ export default function ClaimUsername() {
             fontWeight: 600,
             fontSize: 15,
             color: "#fff",
-            opacity: ready || claimed ? 1 : 0.5,
+            opacity: ready || claimed ? 1 : 0.65,
             background: claimed
               ? "linear-gradient(135deg, #22a04b, #1a7f37)"
               : "linear-gradient(135deg, #4c1d95, #2e1065)",
