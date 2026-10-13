@@ -352,7 +352,7 @@ export default function Chat() {
         style={{
           position: "absolute",
           left: "50%",
-          transform: "translateX(-50%)",
+          translate: "-50% 0", // not `transform`: the entry animation owns transform and would knock the panel off-centre while it plays
           width: 620,
           maxWidth: "calc(100vw - 32px)",
           display: "flex",
@@ -374,7 +374,7 @@ export default function Chat() {
             </p>
             <p style={{ margin: "2px 0 0", fontSize: 12, color: "#5b3fa3" }}>@{name || "…"}</p>
           </div>
-          <span style={{ padding: "6px 12px", borderRadius: 999, background: "rgba(255,255,255,0.7)", fontWeight: 800, fontSize: 14, color: "#2e1065" }}>{fmtUsd(balance)}</span>
+          <span style={{ padding: "6px 12px", borderRadius: 999, background: "rgba(255,255,255,0.7)", fontWeight: 800, fontSize: 14, color: "#2e1065" }}>{loaded ? fmtUsd(balance) : "…"}</span>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
