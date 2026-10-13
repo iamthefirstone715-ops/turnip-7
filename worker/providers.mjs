@@ -17,25 +17,20 @@ export function parseBill(billType) {
   return { category, serviceID: serviceID || DEFAULT_SERVICE[category], variation };
 }
 
-// VTpass requires request_id to start with YYYYMMDDHHmm in Africa/Lagos time.
-function vtpassRequestId(orderId) {
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Africa/Lagos",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    })
-      .formatToParts(new Date())
+// VTpass requires request_id to start with YYYYMMDDHHmm in Africa/Lagos time (and the date must be today's).
+const lagos = (unixSeconds) =>
+  Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(new Date(unixSeconds * 1000))
       .map((x) => [x.type, x.value]),
   );
-  return `${p.year}${p.month}${p.day}${p.hour}${p.minute}o${orderId}x${Math.random().toString(36).slice(2, 8)}`;
-}
+const day = (p) => `${p.year}${p.month}${p.day}`;
 
-export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, secretKey, fetchImpl = fetch }) {
+// Built only from the order itself, so every worker (and every retry) derives the same id for the same order:
+// VTpass then refuses a second purchase (code 014) and /requery finds the first one.
+const vtpassRequestId = (orderId, p) => `${day(p)}${p.hour}${p.minute}o${orderId}`;
+
+export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, secretKey, fetchImpl = fetch, pollMs = 3000 }) {
   const call = async (path, body) => {
     const res = await fetchImpl(`${baseUrl}${path}`, {
       method: "POST",
@@ -60,7 +55,8 @@ export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, sec
       return { ok: true, ref: j.purchased_code || j.content.transactions.transactionId || j.requestId };
     }
     if (j?.code === "000" && (status === "pending" || status === "initiated")) return { pending: true };
-    if (j?.code === "099") return { pending: true }; // processing
+    if (j?.code === "099" || j?.code === "089") return { pending: true }; // processing
+    if (j?.code === "014") return { pending: true }; // request id already used: another worker bought it, requery gives the result
     if (status === "failed" || status === "reversed") return { ok: false, reason: `vtpass ${status}` };
     // Any other code is a definitive rejection (bad number, low wallet, etc.).
     return { ok: false, reason: `vtpass code ${j?.code ?? "unknown"}: ${j?.response_description ?? ""}` };
@@ -73,7 +69,18 @@ export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, sec
       // billType is free text anyone can write on-chain: only buy products the app itself offers.
       if (!CATEGORIES[category].providers.some((p) => p.id === serviceID)) return { ok: false, reason: `unknown provider ${serviceID} for ${category}` };
       if (category === "electricity" && variation && variation !== "prepaid" && variation !== "postpaid") return { ok: false, reason: `unknown meter type ${variation}` };
-      const request_id = vtpassRequestId(order.id);
+      const created = lagos(order.createdAt ?? Math.floor(Date.now() / 1000));
+      // An order from an earlier day can't get a valid id today. Leave it escrowed: the payer can reclaim after an hour.
+      if (day(created) !== day(lagos(Math.floor(Date.now() / 1000)))) return { pending: true };
+      const request_id = vtpassRequestId(order.id, created);
+      // Ask first: if VTpass already has this order (a restart, or another worker), use its answer and never buy twice.
+      let known;
+      try {
+        known = await call("/requery", { request_id });
+      } catch {
+        return { pending: true };
+      }
+      if (known?.code !== "015") return known?.content?.transactions?.status ? classify(known) : { pending: true }; // 015 = never used; anything unclear = wait
       const paidNgn = Math.max(1, Math.round(order.usd * NGN_PER_USD));
       // VTpass wants a contact phone on every purchase; meter and smartcard orders have a different account.
       const phone = PHONE.test(order.account) ? order.account : (process.env.VTPASS_PHONE ?? "08011111111");
@@ -103,9 +110,10 @@ export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, sec
       }
       let r = classify(j);
       for (let i = 0; r.pending && i < 5; i++) {
-        await new Promise((x) => setTimeout(x, 3000));
+        await new Promise((x) => setTimeout(x, pollMs));
         try {
-          r = classify(await call("/requery", { request_id }));
+          const q = await call("/requery", { request_id });
+          if (q?.content?.transactions?.status) r = classify(q); // an answer without a transaction in it tells us nothing: keep waiting
         } catch {}
       }
       return r;

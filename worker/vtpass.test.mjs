@@ -4,8 +4,11 @@ import assert from "node:assert/strict";
 import { vtpass } from "./providers.mjs";
 
 const order = { id: 7n, billType: "electricity", account: "45012345678", usd: 10 };
-const reply = (body) => async () => ({ json: async () => body });
-const make = (fetchImpl) => vtpass({ apiKey: "k", secretKey: "s", fetchImpl });
+const NEW = { code: "015" }; // what /requery says about a request id VTpass has never seen
+const reply = (body) => async (url) => ({ json: async () => (String(url).includes("/requery") ? NEW : body) });
+const now = Math.floor(Date.now() / 1000);
+const fresh = { ...order, createdAt: now };
+const make = (fetchImpl) => vtpass({ apiKey: "k", secretKey: "s", fetchImpl, pollMs: 0 });
 
 test("delivered returns token as reference", async () => {
   const r = await make(reply({ code: "000", purchased_code: "Token : 1234", content: { transactions: { status: "delivered" } } })).fulfill(order);
@@ -24,15 +27,52 @@ test("network error never refunds", async () => {
   assert.deepEqual(r, { pending: true });
 });
 
-test("request id starts with Lagos YYYYMMDDHHmm and body carries naira amount", async () => {
-  let body;
-  await make(async (_u, init) => {
-    body = JSON.parse(init.body);
+test("request id is Lagos YYYYMMDDHHmm of the order plus its id, so every worker derives the same one", async () => {
+  const bodies = [];
+  const fetchImpl = async (url, init) => {
+    if (String(url).includes("/requery")) return { json: async () => NEW };
+    bodies.push(JSON.parse(init.body));
     return { json: async () => ({ code: "000", content: { transactions: { status: "delivered", transactionId: "t" } } }) };
-  }).fulfill(order);
-  assert.match(body.request_id, /^\d{12}o7x/);
-  assert.equal(body.amount, 15000); // $10 at 1500 NGN/USD
-  assert.equal(body.serviceID, "ikeja-electric");
+  };
+  await make(fetchImpl).fulfill(fresh);
+  await make(fetchImpl).fulfill(fresh);
+  assert.match(bodies[0].request_id, /^\d{12}o7$/);
+  assert.equal(bodies[0].request_id, bodies[1].request_id);
+  assert.equal(bodies[0].amount, 15000); // $10 at 1500 NGN/USD
+  assert.equal(bodies[0].serviceID, "ikeja-electric");
+});
+
+test("an order VTpass already knows is never bought again", async () => {
+  let paid = 0;
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/requery")) return { json: async () => ({ code: "000", purchased_code: "Token : 99", content: { transactions: { status: "delivered" } } }) };
+    paid++;
+    return { json: async () => ({ code: "000", content: { transactions: { status: "delivered" } } }) };
+  };
+  const r = await make(fetchImpl).fulfill(fresh);
+  assert.deepEqual(r, { ok: true, ref: "Token : 99" });
+  assert.equal(paid, 0);
+});
+
+test("a duplicate-id reply (another worker got there first) leaves the order escrowed, never refunds", async () => {
+  const fetchImpl = async (url) => ({ json: async () => (String(url).includes("/requery") ? NEW : { code: "014", response_description: "REQUEST ID ALREADY EXIST" }) });
+  assert.deepEqual(await make(fetchImpl).fulfill(fresh), { pending: true });
+});
+
+test("a requery answer we do not understand is treated as pending", async () => {
+  const fetchImpl = async () => ({ json: async () => ({ code: "083" }) });
+  assert.deepEqual(await make(fetchImpl).fulfill(fresh), { pending: true });
+});
+
+test("an order from an earlier Lagos day is left for the payer to reclaim", async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls++;
+    return { json: async () => NEW };
+  };
+  const r = await make(fetchImpl).fulfill({ ...order, createdAt: now - 3 * 86_400 });
+  assert.deepEqual(r, { pending: true });
+  assert.equal(calls, 0);
 });
 
 // Fake VTpass: plan list on GET, purchase on POST. Records every POST body.
@@ -40,6 +80,7 @@ const fakeVtpass = (plans) => {
   const posts = [];
   const fetchImpl = async (url, init) => {
     if (String(url).includes("service-variations")) return { json: async () => ({ content: { variations: plans } }) };
+    if (String(url).includes("/requery")) return { json: async () => NEW };
     posts.push(JSON.parse(init.body));
     return { json: async () => ({ code: "000", content: { transactions: { status: "delivered", transactionId: "t1" } } }) };
   };

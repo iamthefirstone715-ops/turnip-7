@@ -12,15 +12,20 @@ export const schedulerAbi = parseAbi([
  * Each schedule's next due time is cached, so a tick only reads schedules that are new or due: far-future or spammed
  * schedules cost nothing, and at most `maxPerTick` runs are sent per tick.
  */
-export function createKeeper({ publicClient, walletClient, scheduler, retryMs = 60_000, maxPerTick = 25, log = console.log }) {
+export function createKeeper({ publicClient, walletClient, scheduler, retryMs = 60_000, maxPerTick = 25, lookback, log = console.log }) {
   const due = new Map(); // id -> nextDue (unix seconds); dropped once a schedule is finished or cancelled
   const backoff = new Map(); // id -> time before which we won't retry a failing run
   let seen = 1n; // every id below this has been read once
+  let started = false;
 
   const read = (id) => publicClient.readContract({ address: scheduler, abi: schedulerAbi, functionName: "get", args: [id], blockTag: "latest" });
 
   async function tick() {
     const next = await publicClient.readContract({ address: scheduler, abi: schedulerAbi, functionName: "nextId", blockTag: "latest" });
+    if (!started) {
+      started = true;
+      if (lookback && next > BigInt(lookback) + 1n) seen = next - BigInt(lookback); // serverless: only the latest schedules can still be live
+    }
     for (; seen < next; seen++) {
       const s = await read(seen);
       if (s.runsLeft > 0) due.set(seen, s.nextDue);

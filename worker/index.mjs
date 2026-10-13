@@ -42,9 +42,9 @@ export function createWorker({ publicClient, walletClient, billPay, provider, cu
     if (inflight.has(id)) return;
     inflight.add(id);
     try {
-      const [, , , status] = await publicClient.readContract({ address: billPay, abi, functionName: "orders", args: [id] });
+      const [, , createdAt, status] = await publicClient.readContract({ address: billPay, abi, functionName: "orders", args: [id] });
       if (status !== PENDING) return; // already settled (restart or duplicate scan)
-      const order = { id, billType: ev.args.billType, account: ev.args.account, usd: Number(ev.args.amount) / 1e6 };
+      const order = { id, billType: ev.args.billType, account: ev.args.account, usd: Number(ev.args.amount) / 1e6, createdAt: Number(createdAt) };
       log(`#${id} ${order.billType} ${order.account} $${order.usd}`);
       const r = await provider.fulfill(order);
       if (r.pending) return log(`#${id} still pending at provider, left escrowed (payer can reclaim)`);

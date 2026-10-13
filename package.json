@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "worker": "node --env-file=worker/.env worker/run.mjs",
-    "test:worker": "node --test worker/vtpass.test.mjs app/lib/schedule.test.ts && node worker/e2e.mjs"
+    "test:worker": "node --test worker/vtpass.test.mjs worker/tick.test.mjs app/lib/schedule.test.ts && node worker/e2e.mjs"
   },
   "dependencies": {
     "@privy-io/react-auth": "^3.47.0",
@@ -29,5 +29,8 @@
     "eslint-config-next": "16.3.6",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": "24.x"
   }
 }

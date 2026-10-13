@@ -60,7 +60,8 @@ export async function payBill(me: Me, b: BillInput): Promise<{ tx: Hex; orderId:
 /** Polls the order until the worker settles it, then records the outcome in the activity list. */
 export async function waitForSettlement(address: Address, tx: Hex, orderId: bigint): Promise<Settlement> {
   // ponytail: polls the order every 1.5s; switch to a websocket subscription if the RPC supports it
-  for (;;) {
+  for (let n = 0; ; n++) {
+    if (n % 4 === 0) fetch("/api/tick").catch(() => {}); // the hosted worker runs on demand: nudge it while we wait
     const done = await settlementOf(orderId).catch(() => undefined); // a flaky RPC read just means "look again"
     if (done) {
       updateEntry(address, tx, done.status === "fulfilled" ? { status: "Paid", ref: done.ref } : { status: "Refunded" });
