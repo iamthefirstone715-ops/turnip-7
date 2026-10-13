@@ -27,6 +27,10 @@ A crypto wallet can't pay a normal bill, and a new user can't even send USDC wit
 
 The app approves the paymaster for a small gas budget (2 USDC) and tops it up when it runs low. The approval is its own user operation, sent automatically before the payment when needed; there is no separate setup screen.
 
+## Demo video
+
+`docs/klink-demo.mp4` (about 2 minutes). It replays a real run on Monad testnet as stills under a voiceover: a send, a bill paid through escrow (VTpass sandbox), and a recurring payment that ran twice. The refund card is output from the local-chain test, not a live run. Rebuild it with `docs/demo-video/build.mjs`.
+
 ## What has been verified
 
 Everything below was run, not assumed.

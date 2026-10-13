@@ -1,0 +1,10 @@
+local chain test  (npm run test:worker)
+
+#2  electricity 45012345678  $10
+#2  fulfilled: Token: 2228369428932003
+
+#3  airtime 00099999999  $7
+#3  refunded: mock: number rejected
+
+E2E PASS: fulfil, refund, escrow empty,
+idempotent restart, recurring runs and spend cap

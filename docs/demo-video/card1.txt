@@ -1,0 +1,8 @@
+KLINK  |  on-chain receipt  |  Monad testnet (10143)
+
+send        $0.10 USDC  to  @mumdemo
+tx          0x892beeaf...f7c354     status: success
+account     0xe64c...a016   smart account, holds 0 MON
+gas paid    0.0645 MON, by the paymaster 0x0aFb...defD
+fee         0.007035 USDC prepaid - 0.003617 refunded
+            = 0.003418 USDC, taken from the user's USDC
