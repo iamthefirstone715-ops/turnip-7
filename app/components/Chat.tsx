@@ -295,11 +295,12 @@ function PayCard({ intent, me, onDone }: { intent: Extract<Intent, { kind: "bill
 
 /** Chat view: say what you want, check a small card, confirm. Runs the same actions as the button screens. */
 export default function Chat() {
-  const { address, name, balance, exec, refresh } = useWallet();
+  const { address, name, balance, exec, refresh, loaded } = useWallet();
   const { getAccessToken } = usePrivy();
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [copied, setCopied] = useState(false);
   const nextId = useRef(1);
   const end = useRef<HTMLDivElement>(null);
 
@@ -383,6 +384,31 @@ export default function Chat() {
               Hi @{name || "there"}! I can <strong>send money</strong>, <strong>pay a bill</strong>, or set up a <strong>repeating payment</strong>. Just tell me in your own words. You don&apos;t need any crypto words: you hold dollars (USDC) and fees come out of them.
             </div>
           </div>
+          {loaded && balance === BigInt(0) && address && (
+            <div className="anim-fade-up" style={{ display: "flex", gap: 8, alignItems: "flex-end", animationDelay: "0.15s" }}>
+              <Avatar />
+              <div style={bubble(false)}>
+                Your balance is <strong>$0.00</strong>. Add some testnet USDC first: copy your address, then paste it at the Circle faucet (choose <strong>Monad Testnet</strong>).
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(address).then(() => {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      });
+                    }}
+                    style={{ padding: "8px 14px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, color: "#fff", background: "linear-gradient(135deg, #4c1d95, #2e1065)" }}
+                  >
+                    {copied ? "Copied ✓" : "Copy my address"}
+                  </button>
+                  <a href="https://faucet.circle.com" target="_blank" rel="noreferrer" style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid rgba(76,29,149,0.3)", fontWeight: 700, fontSize: 13, color: "#2e1065", textDecoration: "none", background: "rgba(255,255,255,0.7)" }}>
+                    Open the faucet ↗
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
           {msgs.map((m) =>
             m.from === "you" ? (
               <div key={m.id} className="anim-fade-up" style={{ display: "flex", justifyContent: "flex-end" }}>
