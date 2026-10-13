@@ -1,5 +1,5 @@
 // node worker/e2e.mjs  (needs `forge build` in contracts/ first). Local anvil, mock provider.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { createPublicClient, createWalletClient, http, parseAbi } from "viem";
@@ -7,6 +7,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
 import { createWorker, abi } from "./index.mjs";
 import { mock } from "./providers.mjs";
+import { createKeeper } from "./keeper.mjs";
 
 const KEYS = [
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80", // deployer
@@ -17,7 +18,11 @@ const KEYS = [
 const [deployer, operator, treasury, payer] = KEYS.map(privateKeyToAccount);
 const artifact = (p) => JSON.parse(readFileSync(new URL(`../contracts/out/${p}.json`, import.meta.url), "utf8"));
 
-const anvil = spawn("anvil", ["--port", "8546", "--silent"], { stdio: "ignore" });
+// ANVIL_WSL=1 runs the Linux anvil inside WSL, for machines where Windows blocks the native binary.
+const viaWsl = process.env.ANVIL_WSL === "1";
+const anvil = viaWsl
+  ? spawn("wsl", ["-e", "bash", "-lc", "exec ~/.foundry/bin/anvil --port 8546 --host 0.0.0.0 --silent"], { stdio: "ignore" })
+  : spawn("anvil", ["--port", "8546", "--silent"], { stdio: "ignore" });
 try {
   const transport = http("http://127.0.0.1:8546");
   const pub = createPublicClient({ chain: foundry, transport });
@@ -65,7 +70,44 @@ try {
   logs.length = 0;
   await make().scan(); // restart from scratch: must be a no-op for settled orders
   assert.equal(logs.length, 0, "rescan is idempotent");
-  console.log("\nE2E PASS: fulfil, refund, escrow empty, idempotent restart");
+  // --- recurring payments: keeper runs due schedules, worker fulfils them, the approved cap is a hard stop ---
+  const scheduler = await deploy(artifact("Scheduler.sol/Scheduler"), [billPay]);
+  await send(operator, billPay, parseAbi(["function setScheduler(address)"]), "setScheduler", [scheduler]);
+  const before = await bal(payer.address);
+  await send(payer, usdc, erc, "approve", [billPay, 20_000_000n]); // cap: two runs of 10
+  await send(payer, scheduler, parseAbi(["function create(string,string,string,uint96,uint32,uint16,uint64) returns (uint256)"]), "create", [
+    "electricity:ikeja-electric:prepaid", "45012345678", "mum", 10_000_000n, 60, 3, 0n,
+  ]);
+  const keeper = createKeeper({ publicClient: pub, walletClient: wallet(operator), scheduler, retryMs: 0, log: (m) => (logs.push(m), console.log(m)) });
+  const w = make();
+  const later = async (secs) => {
+    await pub.request({ method: "evm_increaseTime", params: [secs] });
+    await pub.request({ method: "evm_mine", params: [] });
+  };
+
+  await keeper.tick();
+  await w.scan();
+  assert.equal(await status(4n), 2, "run 1 was created and fulfilled");
+  assert.equal(await bal(payer.address), before - 10_000_000n, "run 1 paid from the payer");
+
+  await keeper.tick(); // not due again yet
+  assert.equal(await bal(payer.address), before - 10_000_000n, "no early second run");
+
+  await later(61);
+  await keeper.tick();
+  await w.scan();
+  assert.equal(await status(5n), 2, "run 2 fulfilled after the interval");
+  assert.equal(await bal(payer.address), before - 20_000_000n);
+
+  await later(61);
+  logs.length = 0;
+  await keeper.tick(); // third run is due but the approval is used up
+  assert.ok(logs.some((m) => /skipped/.test(m)), "third run skipped instead of crashing");
+  assert.equal(await bal(payer.address), before - 20_000_000n, "spend cap held");
+  assert.equal(await bal(billPay), 0n, "escrow empty");
+
+  console.log("\nE2E PASS: fulfil, refund, escrow empty, idempotent restart, recurring runs and spend cap");
 } finally {
   anvil.kill();
+  if (viaWsl) spawnSync("wsl", ["-e", "pkill", "-f", "anvil --port 8546"]);
 }

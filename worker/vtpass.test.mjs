@@ -105,3 +105,12 @@ test("a plan code that VTpass reuses for two products is refused", async () => {
   assert.equal(r.ok, false);
   assert.equal(posts.length, 0);
 });
+
+test("a provider the app does not offer is refused, even if the chain says so", async () => {
+  const { posts, provider } = fakeVtpass([]);
+  for (const billType of ["airtime:dstv", "airtime:foreign-airtime", "electricity:ikeja-electric:free"]) {
+    const r = await provider.fulfill({ id: 8n, billType, account: "08011111111", usd: 1 });
+    assert.equal(r.ok, false, billType);
+  }
+  assert.equal(posts.length, 0);
+});

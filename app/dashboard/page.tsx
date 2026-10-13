@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import DotCanvas from "../components/DotCanvas";
 import { useWallet } from "../providers";
-import { loadHistory, syncReceived, type Entry } from "../lib/history";
+import { loadHistory, syncReceived, updateEntry, type Entry } from "../lib/history";
+import { encodeFunctionData } from "viem";
+import { ADDR, billPayAbi, fmtUsd, orderIdOf, publicClient, settlementOf } from "../lib/web3";
 
 const cardStyle: CSSProperties = {
   width: 480,
@@ -46,6 +48,25 @@ const linkBtn: CSSProperties = {
   textTransform: "uppercase",
 };
 
+type Held = { id: bigint; amount: bigint; createdAt: number };
+const PENDING = 1;
+
+// ponytail: scans the latest 200 orders; an indexer would replace this if order volume grows
+async function loadHeld(payer: string): Promise<Held[]> {
+  const next = await publicClient.readContract({ address: ADDR.billPay, abi: billPayAbi, functionName: "nextId" });
+  const from = next > BigInt(200) ? next - BigInt(200) : BigInt(1);
+  const ids: bigint[] = [];
+  for (let id = from; id < next; id++) ids.push(id);
+  const orders = await Promise.all(
+    ids.map((id) => publicClient.readContract({ address: ADDR.billPay, abi: billPayAbi, functionName: "orders", args: [id] }).then((o) => ({ id, o }))),
+  );
+  return orders
+    .filter(({ o }) => o[0].toLowerCase() === payer.toLowerCase() && o[3] === PENDING)
+    .map(({ id, o }) => ({ id, amount: o[1], createdAt: Number(o[2]) }));
+}
+
+const TIMEOUT_S = 3600; // BillPay.TIMEOUT
+
 export default function Dashboard() {
   const [selected, setSelected] = useState<Entry | null>(null);
   const router = useRouter();
@@ -57,21 +78,79 @@ export default function Dashboard() {
     balance: bal,
     address,
     logout,
+    exec,
   } = useWallet();
   const balance = useCountUp(Number(bal) / 1e6);
   const [copied, setCopied] = useState(false);
+  const [held, setHeld] = useState<Held[]>([]);
+  const [heldVersion, setHeldVersion] = useState(0);
+  const [reclaiming, setReclaiming] = useState<bigint | null>(null);
+  const [reclaimError, setReclaimError] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const [histVersion, setHistVersion] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Bills still in escrow (provider pending, or the worker was down). After the timeout the payer can take the money back.
+  useEffect(() => {
+    if (!address) return;
+    let live = true;
+    loadHeld(address)
+      .then((h) => live && setHeld(h))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [address, heldVersion, bal]);
+
+  const reclaim = async (id: bigint) => {
+    setReclaimError("");
+    setReclaiming(id);
+    try {
+      await exec([{ to: ADDR.billPay, data: encodeFunctionData({ abi: billPayAbi, functionName: "reclaim", args: [id] }) }]);
+      setHeldVersion((v) => v + 1);
+    } catch (e) {
+      setReclaimError(e instanceof Error ? e.message.split("\n")[0] : "Couldn't get the money back.");
+    } finally {
+      setReclaiming(null);
+    }
+  };
 
   useEffect(() => {
     if (ready && !authenticated) router.replace("/auth");
     else if (loaded && !name) router.replace("/claim-username");
   }, [ready, authenticated, loaded, name, router]);
 
+  // A bill left "Processing" (the page was closed before the worker settled it) is settled from the order on-chain.
+  useEffect(() => {
+    if (!address || !loaded) return;
+    let live = true;
+    for (const e of loadHistory(address)) {
+      if (e.kind !== "bill" || e.status !== "Processing" || !e.hash) continue;
+      orderIdOf(e.hash as `0x${string}`)
+        .then((id) => (id === undefined ? undefined : settlementOf(id)))
+        .then((done) => {
+          if (!live || !done) return;
+          updateEntry(address, e.hash!, done.status === "fulfilled" ? { status: "Paid", ref: done.ref || undefined } : { status: "Refunded" });
+          setHistVersion((v) => v + 1);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      live = false;
+    };
+  }, [address, loaded, bal]);
+
   // syncReceived is idempotent (it stores the balance it saw), so re-running on strict-mode double render is safe.
   const entries = useMemo<Entry[]>(() => {
     if (!address || !loaded) return [];
     syncReceived(address, bal);
+    void histVersion; // re-read after a pending bill is settled
     return loadHistory(address);
-  }, [address, loaded, bal]);
+  }, [address, loaded, bal, histVersion]);
 
   const copyAddress = async () => {
     if (!address) return;
@@ -122,8 +201,8 @@ export default function Dashboard() {
               >
                 {copied ? "Copied" : "Add funds"}
               </button>
-              <button onClick={() => router.push("/profile")} style={linkBtn}>
-                Bill details
+              <button onClick={() => router.push("/schedules")} style={linkBtn}>
+                Schedules
               </button>
               <button
                 onClick={() => logout().then(() => router.replace("/"))}
@@ -199,6 +278,44 @@ export default function Dashboard() {
               </button>
             </span>
           </div>
+        </div>
+
+        <div
+          className="anim-fade-up"
+          style={{ ...cardStyle, animationDelay: "0.15s", display: held.length ? "block" : "none" }}
+        >
+          <span
+            className="font-[family-name:var(--font-bebas-neue)]"
+            style={{ display: "block", fontSize: 18, letterSpacing: 2, color: "#2e1065", marginBottom: 12, paddingBottom: 12, borderBottom: "1px dashed rgba(46, 16, 101, 0.3)" }}
+          >
+            MONEY ON HOLD
+          </span>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "#5b3fa3", lineHeight: 1.45 }}>
+            These bills are still waiting for the provider. If one isn&apos;t delivered within an hour, you can take the money back.
+          </p>
+          {held.map((h) => {
+            const left = h.createdAt + TIMEOUT_S - Math.floor(now / 1000);
+            return (
+              <div key={String(h.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
+                <span style={{ fontSize: 14, color: "#2e1065", fontWeight: 600 }}>
+                  Order #{String(h.id)} · {fmtUsd(h.amount)}
+                </span>
+                {left > 0 ? (
+                  <span style={{ fontSize: 12, color: "rgba(46, 16, 101, 0.6)" }}>refund possible in {Math.ceil(left / 60)} min</span>
+                ) : (
+                  <button
+                    className="btn"
+                    disabled={reclaiming !== null}
+                    onClick={() => reclaim(h.id)}
+                    style={{ padding: "8px 14px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#fff", background: "linear-gradient(135deg, #4c1d95, #2e1065)" }}
+                  >
+                    {reclaiming === h.id ? "…" : "Get my money back"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {reclaimError && <p style={{ margin: "8px 0 0", fontSize: 12, color: "#b42318" }}>{reclaimError}</p>}
         </div>
 
         <div

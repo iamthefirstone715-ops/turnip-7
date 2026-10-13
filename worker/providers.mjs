@@ -3,6 +3,8 @@
 //   { ok: false, reason }      definitively failed -> operator calls refund
 //   { pending: true }          unknown yet      -> leave escrowed (payer can reclaim after TIMEOUT)
 
+import { CATEGORIES } from "../app/lib/bills.ts"; // the same provider list the app offers
+
 const NGN_PER_USD = Number(process.env.NGN_PER_USD ?? 1500); // ponytail: fixed demo rate, use a live FX feed for production
 
 // billType on-chain is "category:provider[:plan]", e.g. "airtime:glo" or "data:mtn-data:mtn-10mb-100"
@@ -68,6 +70,9 @@ export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, sec
     async fulfill(order) {
       const { category, serviceID, variation } = parseBill(order.billType);
       if (!DEFAULT_SERVICE[category]) return { ok: false, reason: `unsupported bill type ${order.billType}` };
+      // billType is free text anyone can write on-chain: only buy products the app itself offers.
+      if (!CATEGORIES[category].providers.some((p) => p.id === serviceID)) return { ok: false, reason: `unknown provider ${serviceID} for ${category}` };
+      if (category === "electricity" && variation && variation !== "prepaid" && variation !== "postpaid") return { ok: false, reason: `unknown meter type ${variation}` };
       const request_id = vtpassRequestId(order.id);
       const paidNgn = Math.max(1, Math.round(order.usd * NGN_PER_USD));
       // VTpass wants a contact phone on every purchase; meter and smartcard orders have a different account.

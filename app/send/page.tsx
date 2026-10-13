@@ -14,7 +14,11 @@ export default function Send() {
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
-  const [error, setError] = useState("");
+  const [shown, setShown] = useState({ msg: "", key: "" });
+  // An error describes the form as it was submitted: once the name or amount changes, it no longer applies.
+  const formKey = `${to}|${amount}`;
+  const error = shown.key === formKey ? shown.msg : "";
+  const setError = (msg: string) => setShown({ msg, key: formKey });
   const [hash, setHash] = useState<Hex>();
   const router = useRouter();
   const { balance, name, address, exec } = useWallet();

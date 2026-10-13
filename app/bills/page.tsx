@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
-import { decodeEventLog, encodeFunctionData, zeroAddress, type Hex } from "viem";
+import { encodeFunctionData, zeroAddress, type Hex } from "viem";
 import DotCanvas from "../components/DotCanvas";
 import GlassCard from "../components/GlassCard";
 import Confetti from "../components/Confetti";
 import { useWallet } from "../providers";
 import { addEntry, setKnownBalance, updateEntry } from "../lib/history";
-import { ADDR, billPayAbi, chain, fmtUsd, profileAbi, publicClient, registryAbi, cleanAmount, toUnits, usdcAbi } from "../lib/web3";
+import { ADDR, billPayAbi, chain, fmtUsd, orderIdOf, publicClient, registryAbi, cleanAmount, settlementOf, toUnits, usdcAbi } from "../lib/web3";
+import { contactName, loadContacts, saveContact } from "../lib/contacts";
 import { CATEGORIES, NGN_PER_USD, encodeBill, usdForNgn, type Category, type Plan } from "../lib/bills";
 
 type Result = { status: "fulfilled"; ref: string } | { status: "refunded" };
@@ -28,17 +29,11 @@ const input: CSSProperties = {
 
 const select: CSSProperties = { ...input, cursor: "pointer", appearance: "auto" };
 
-async function waitForSettlement(orderId: bigint, fromBlock: bigint): Promise<Result> {
-  // ponytail: polls logs every 1.5s; switch to a websocket subscription if the RPC supports it
+async function waitForSettlement(orderId: bigint): Promise<Result> {
+  // ponytail: polls the order every 1.5s; switch to a websocket subscription if the RPC supports it
   for (;;) {
-    const logs = await publicClient.getLogs({ address: ADDR.billPay, fromBlock, toBlock: "latest" });
-    for (const log of logs) {
-      try {
-        const ev = decodeEventLog({ abi: billPayAbi, data: log.data, topics: log.topics });
-        if (ev.eventName === "BillFulfilled" && ev.args.orderId === orderId) return { status: "fulfilled", ref: ev.args.ref };
-        if (ev.eventName === "BillRefunded" && ev.args.orderId === orderId) return { status: "refunded" };
-      } catch {}
-    }
+    const done = await settlementOf(orderId).catch(() => undefined); // a flaky RPC read just means "look again"
+    if (done) return done;
     await new Promise((r) => setTimeout(r, 1500));
   }
 }
@@ -50,79 +45,96 @@ export default function Bills() {
   const [provider, setProvider] = useState(CATEGORIES.airtime.providers[0].id);
   const [planCode, setPlanCode] = useState("");
   const [plansFor, setPlansFor] = useState<{ key: string; list: Plan[] }>({ key: "", list: [] });
+  // Who it's for: a name you'll recognise ("mum") or a platform @username. Kept on this device, never put on-chain.
   const [forWho, setForWho] = useState("");
-  // What @forWho has published for this category: "no-user" (name doesn't exist), "empty", or "ok" with details.
-  const [lookup, setLookup] = useState<{ key: string; status: "no-user" | "empty" | "ok"; detail?: { provider: string; plan: string; account: string } }>({
-    key: "",
-    status: "empty",
-  });
+  const [remember, setRemember] = useState(true);
+  const [version, setVersion] = useState(0);
+  const [nameCheck, setNameCheck] = useState<{ key: string; exists: boolean }>({ key: "", exists: true });
   const [account, setAccount] = useState("");
   const [amount, setAmount] = useState("");
   const [stage, setStage] = useState<"form" | "paying" | "processing" | "done">("form");
   const [result, setResult] = useState<Result>();
   const [hash, setHash] = useState<Hex>();
-  const [error, setError] = useState("");
+  const [shown, setShown] = useState({ msg: "", key: "" });
 
+  const contacts = useMemo(() => {
+    void version; // re-read after a person is saved
+    return address ? loadContacts(address) : [];
+  }, [address, version]);
   const bill = CATEGORIES[category];
-  const lookupKey = `${forWho}:${category}`;
-  const checking = forWho.length >= 3 && lookup.key !== lookupKey;
-  const found = forWho.length >= 3 && !checking && lookup.status === "ok" ? lookup.detail : undefined;
-  const noUser = !checking && forWho.length >= 3 && lookup.status === "no-user";
-  // When @forWho has published details for this category, those win over what is typed here.
-  const effProvider = found?.provider ?? provider;
-  const effPlanCode = found?.plan ? found.plan : planCode;
-  const effAccount = found?.account ?? account;
-  const providerName = bill.providers.find((p) => p.id === effProvider)?.name ?? "";
+  const personKey = contactName(forWho); // "@tobi", "mum", or "" for yourself
+  const handle = personKey.startsWith("@") ? personKey.slice(1) : "";
+  const handleOk = /^[a-z0-9_]{3,20}$/.test(handle);
+  const checking = handleOk && nameCheck.key !== handle;
+  const noUser = handleOk && !checking && !nameCheck.exists;
+  const nameValid = !personKey || (personKey.startsWith("@") ? handleOk && !checking && !noUser : /^[\p{L} ]{1,30}$/u.test(personKey));
+  const savedContact = personKey ? contacts.find((c) => c.name === personKey && c.category === category) : undefined;
+  const unchangedContact = !!savedContact && savedContact.provider === provider && savedContact.account === account && (category !== "electricity" || savedContact.plan === planCode);
+  const providerName = bill.providers.find((p) => p.id === provider)?.name ?? "";
   const fetched = bill.plans === "fetch";
   const plans = fetched ? plansFor.list : (bill.staticPlans ?? []);
-  const plansLoading = fetched && plansFor.key !== effProvider;
-  const plan = plans.find((p) => p.code === effPlanCode);
+  const plansLoading = fetched && plansFor.key !== provider;
+  const plan = plans.find((p) => p.code === planCode);
   // Data and TV plans have a fixed naira price, so the dollar amount follows the plan.
   const amountStr = fetched ? (plan ? usdForNgn(plan.ngn).toFixed(2) : "") : amount;
-  const forWhoOk = !forWho || (forWho.length >= 3 && !checking && !noUser);
-  const canPay = !!effAccount && Number(amountStr) > 0 && (!bill.plans || !!plan) && forWhoOk && stage === "form";
+  // An error describes the form as it was submitted: once anything changes, it no longer applies.
+  const formKey = [category, provider, planCode, account, amountStr, forWho].join("|");
+  const error = shown.key === formKey ? shown.msg : "";
+  const setError = (msg: string) => setShown({ msg, key: formKey });
+  const canPay = !!account && Number(amountStr) > 0 && (!bill.plans || !!plan) && nameValid && stage === "form";
 
   useEffect(() => {
     if (!fetched) return;
     let live = true;
-    fetch(`/api/plans?serviceID=${effProvider}`)
+    fetch(`/api/plans?serviceID=${provider}`)
       .then((r) => r.json())
-      .then((list) => live && setPlansFor({ key: effProvider, list: Array.isArray(list) ? list : [] }))
-      .catch(() => live && setPlansFor({ key: effProvider, list: [] }));
+      .then((list) => live && setPlansFor({ key: provider, list: Array.isArray(list) ? list : [] }))
+      .catch(() => live && setPlansFor({ key: provider, list: [] }));
     return () => {
       live = false;
     };
-  }, [fetched, effProvider]);
+  }, [fetched, provider]);
 
-  // Look @forWho up in the registry, then read what they saved for this category.
+  // For a platform @username, only check that the name exists (a typo guard). Nobody's details are ever looked up.
   useEffect(() => {
-    if (forWho.length < 3) return;
+    if (!handleOk) return;
     let live = true;
-    const key = `${forWho}:${category}`;
-    const t = setTimeout(async () => {
-      try {
-        const owner = await publicClient.readContract({ address: ADDR.registry, abi: registryAbi, functionName: "resolve", args: [forWho] });
-        if (!live) return;
-        if (owner === zeroAddress) return setLookup({ key, status: "no-user" });
-        if (!CATEGORIES[category].saveable) return setLookup({ key, status: "empty" }); // phone-based: nothing is ever saved
-        const d = await publicClient.readContract({ address: ADDR.profile, abi: profileAbi, functionName: "get", args: [owner, category] });
-        if (!live) return;
-        const usable = d.account && CATEGORIES[category].providers.some((p) => p.id === d.provider);
-        setLookup(usable ? { key, status: "ok", detail: { provider: d.provider, plan: d.plan, account: d.account } } : { key, status: "empty" });
-      } catch {
-        if (live) setLookup({ key, status: "empty" });
-      }
+    const t = setTimeout(() => {
+      publicClient
+        .readContract({ address: ADDR.registry, abi: registryAbi, functionName: "resolve", args: [handle] })
+        .then((owner) => live && setNameCheck({ key: handle, exists: owner !== zeroAddress }))
+        .catch(() => live && setNameCheck({ key: handle, exists: true }));
     }, 400);
     return () => {
       live = false;
       clearTimeout(t);
     };
-  }, [forWho, category]);
+  }, [handle, handleOk]);
+
+  // Copy a person you've saved into the form; returns whether there was one.
+  const fillFrom = (name: string, cat: Category) => {
+    const c = address ? loadContacts(address).find((x) => x.name === contactName(name) && x.category === cat) : undefined;
+    if (!c) return false;
+    setProvider(c.provider);
+    if (cat === "electricity") setPlanCode(c.plan || "prepaid");
+    setAccount(c.account);
+    return true;
+  };
+  const resetDetails = (cat: Category) => {
+    setProvider(CATEGORIES[cat].providers[0].id);
+    setPlanCode(CATEGORIES[cat].staticPlans?.[0]?.code ?? "");
+    setAccount("");
+  };
+  const onWho = (raw: string) => {
+    const v = raw.slice(0, 30);
+    setForWho(v);
+    if (!fillFrom(v, category) && savedContact) resetDetails(category); // don't leave the previous person's number behind
+  };
 
   const pickCategory = (c: Category) => {
     setCategory(c);
-    setProvider(CATEGORIES[c].providers[0].id);
-    setPlanCode(CATEGORIES[c].staticPlans?.[0]?.code ?? "");
+    resetDetails(c);
+    fillFrom(forWho, c);
     setAmount("");
   };
   const pickProvider = (id: string) => {
@@ -132,32 +144,33 @@ export default function Bills() {
 
   const pay = async () => {
     setError("");
-    const billType = encodeBill(category, effProvider, bill.plans ? effPlanCode : undefined);
+    const billType = encodeBill(category, provider, bill.plans ? planCode : undefined);
     const value = toUnits(amountStr);
     if (value > balance) return setError("Not enough balance");
     setStage("paying");
     try {
       const tx = await exec([
-        { to: ADDR.usdc, data: encodeFunctionData({ abi: usdcAbi, functionName: "approve", args: [ADDR.billPay, value] }) },
+        {
+          to: ADDR.usdc,
+          // add to the existing approval: replacing it would silently cancel the room active schedules rely on
+          data: encodeFunctionData({ abi: usdcAbi, functionName: "approve", args: [ADDR.billPay, (await publicClient.readContract({ address: ADDR.usdc, abi: usdcAbi, functionName: "allowance", args: [address!, ADDR.billPay] })) + value] }),
+        },
         {
           to: ADDR.billPay,
-          data: encodeFunctionData({ abi: billPayAbi, functionName: "pay", args: [billType, effAccount, value, forWho] }),
+          data: encodeFunctionData({ abi: billPayAbi, functionName: "pay", args: [billType, account, value, ""] }), // who it's for is never published
         },
       ]);
       setHash(tx);
-      const title = `${providerName} ${bill.label}${forWho ? ` for @${forWho}` : ""}`;
-      if (address) addEntry(address, { kind: "bill", title, amount: Number(value) / 1e6, status: "Processing", hash: tx });
-      const receipt = await publicClient.getTransactionReceipt({ hash: tx });
-      let orderId: bigint | undefined;
-      for (const log of receipt.logs) {
-        try {
-          const ev = decodeEventLog({ abi: billPayAbi, data: log.data, topics: log.topics });
-          if (ev.eventName === "BillRequested") orderId = ev.args.orderId;
-        } catch {}
+      if (remember && address && personKey) {
+        saveContact(address, { name: personKey, category, provider, plan: category === "electricity" ? planCode : "", account });
+        setVersion((v) => v + 1);
       }
+      const title = `${providerName} ${bill.label}${personKey ? ` for ${personKey}` : ""}`;
+      if (address) addEntry(address, { kind: "bill", title, amount: Number(value) / 1e6, status: "Processing", hash: tx });
+      const orderId = await orderIdOf(tx);
       if (orderId === undefined) throw new Error("Order not found in receipt");
       setStage("processing");
-      const res = await waitForSettlement(orderId, receipt.blockNumber);
+      const res = await waitForSettlement(orderId);
       if (address) {
         updateEntry(address, tx, res.status === "fulfilled" ? { status: "Paid", ref: res.ref } : { status: "Refunded" });
         setKnownBalance(address, await refresh()); // a refund is not "received funds"
@@ -183,7 +196,7 @@ export default function Bills() {
                 <span className="spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
                 <p style={{ margin: "16px 0 4px", fontWeight: 700, color: "#2e1065" }}>Paying {bill.label.toLowerCase()}…</p>
                 <p style={{ margin: 0, fontSize: 13, color: "#5b3fa3" }}>
-                  ${amountStr} is held safely until the provider confirms.
+                  ${amountStr} is held safely until the provider confirms. If it isn&apos;t delivered within an hour, you can take it back from your dashboard.
                 </p>
               </>
             ) : (
@@ -214,7 +227,7 @@ export default function Bills() {
                 <p className="anim-fade-up" style={{ margin: 0, fontSize: 13, color: "#5b3fa3", animationDelay: "0.1s" }}>
                   {ok ? (
                     <>
-                      {forWho ? <>for <strong>@{forWho}</strong> · </> : null}Reference <strong>{result.ref}</strong>
+                      {personKey ? <>for <strong>{personKey}</strong> · </> : null}Reference <strong>{result.ref}</strong>
                     </>
                   ) : (
                     "The provider couldn't complete it, so your money came back."
@@ -291,32 +304,32 @@ export default function Bills() {
 
         <div style={{ ...input, marginBottom: 6, display: "flex", alignItems: "center", padding: 0, overflow: "hidden" }}>
           <span style={{ padding: "12px 0 12px 14px", fontSize: 14, color: "#5b3fa3", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
-            For @
+            For
           </span>
           <input
             value={forWho}
-            onChange={(e) => setForWho(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-            placeholder="me (or a username)"
-            style={{ ...input, width: "auto", flex: 1, minWidth: 0, margin: 0, border: "none", background: "transparent", paddingLeft: 4 }}
+            onChange={(e) => onWho(e.target.value)}
+            placeholder="yourself, or @username / a name like mum"
+            style={{ ...input, width: "auto", flex: 1, minWidth: 0, margin: 0, border: "none", background: "transparent", paddingLeft: 8 }}
           />
         </div>
-        <p style={{ margin: "0 0 12px", fontSize: 12, minHeight: 16, lineHeight: 1.4, color: noUser ? "#b42318" : found ? "#1a7f37" : "#5b3fa3", fontWeight: found || noUser ? 600 : 400 }}>
-          {forWho.length < 3
-            ? forWho
-              ? "Usernames are at least 3 characters."
-              : "Leave empty to pay for yourself, or type a username to pay for them."
-            : checking
-              ? "Checking…"
-              : noUser
-                ? `@${forWho} doesn't exist.`
-                : found
-                  ? `Using @${forWho}'s saved ${bill.label.toLowerCase()} details.`
-                  : bill.saveable
-                    ? `@${forWho} hasn't saved ${bill.label.toLowerCase()} details, so enter them below.`
-                    : `Enter @${forWho}'s phone number below.`}
+        <p style={{ margin: "0 0 12px", fontSize: 12, minHeight: 16, lineHeight: 1.4, color: noUser || (personKey && !nameValid && !checking) ? "#b42318" : savedContact ? "#1a7f37" : "#5b3fa3", fontWeight: savedContact || noUser ? 600 : 400 }}>
+          {!personKey
+            ? "Leave empty to pay for yourself."
+            : personKey.startsWith("@") && !handleOk
+              ? "Usernames are 3 to 20 letters, numbers or _."
+              : checking
+                ? "Checking…"
+                : noUser
+                  ? `@${handle} doesn't exist.`
+                  : !nameValid
+                    ? "Names can use letters and spaces."
+                    : savedContact
+                      ? `Using your saved details for ${personKey}.`
+                      : `Enter ${personKey}'s details once below. I'll remember them on this device, so next time the name is enough.`}
         </p>
 
-        <select value={effProvider} onChange={(e) => pickProvider(e.target.value)} aria-label={bill.providerLabel} disabled={!!found} style={select}>
+        <select value={provider} onChange={(e) => pickProvider(e.target.value)} aria-label={bill.providerLabel} style={select}>
           {bill.providers.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -326,10 +339,10 @@ export default function Bills() {
 
         {bill.plans && (
           <select
-            value={effPlanCode}
+            value={planCode}
             onChange={(e) => setPlanCode(e.target.value)}
             aria-label="Plan"
-            disabled={plansLoading || (bill.plans === "static" && !!found?.plan)}
+            disabled={plansLoading}
             style={select}
           >
             <option value="" disabled>
@@ -343,13 +356,13 @@ export default function Bills() {
           </select>
         )}
 
-        <input
-          value={effAccount}
-          onChange={(e) => setAccount(e.target.value.trim())}
-          readOnly={!!found}
-          placeholder={bill.field}
-          style={found ? { ...input, background: "rgba(255, 255, 255, 0.4)" } : input}
-        />
+        <input value={account} onChange={(e) => setAccount(e.target.value.trim())} placeholder={bill.field} style={input} />
+        {personKey && nameValid && !unchangedContact && (
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: "#5b3fa3", margin: "0 0 12px", cursor: "pointer" }}>
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            {savedContact ? `Update ${personKey}'s saved details` : `Remember ${personKey} for next time (this device only)`}
+          </label>
+        )}
         {fetched ? (
           plan && (
             <p className="anim-fade" style={{ margin: "0 0 12px", fontSize: 13, color: "#2e1065", fontWeight: 600 }}>
@@ -398,7 +411,7 @@ export default function Bills() {
           ) : (
             <>
               Pay{amountStr ? ` $${amountStr}` : ""}
-              {forWho ? ` for @${forWho}` : ""}
+              {personKey ? ` for ${personKey}` : ""}
             </>
           )}
         </button>

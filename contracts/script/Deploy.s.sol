@@ -23,7 +23,7 @@ contract Deploy is Script {
         vm.startBroadcast();
         UsernameRegistry reg = new UsernameRegistry();
         BillPay bp = new BillPay(USDC_TESTNET, operator, treasury);
-        USDCPaymaster pm = new USDCPaymaster(IEntryPoint(ENTRYPOINT_V07), IERC20(USDC_TESTNET), rate);
+        USDCPaymaster pm = new USDCPaymaster(IEntryPoint(ENTRYPOINT_V07), IERC20(USDC_TESTNET), rate, vm.envOr("MAX_USDC_PER_MON", uint256(5_000_000)));
         pm.deposit{value: deposit}();
         vm.stopBroadcast();
 

@@ -2,9 +2,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { PrivyProvider, useCreateWallet, usePrivy, useWallets } from "@privy-io/react-auth";
-import { createWalletClient, custom, encodeFunctionData, maxUint256, type Address, type Hex } from "viem";
+import { createWalletClient, custom, type Address, type Hex } from "viem";
 import { setKnownBalance } from "./lib/history";
-import { ADDR, chain, makeSmartClient, publicClient, registryAbi, usdcAbi, type SmartClient } from "./lib/web3";
+import { ADDR, chain, ensurePaymasterBudget, makeSmartClient, publicClient, registryAbi, sendOp, usdcAbi, type SmartClient } from "./lib/web3";
 
 type Call = { to: Address; data: Hex };
 
@@ -105,18 +105,8 @@ function WalletState({ children }: { children: ReactNode }) {
   const exec = useCallback(
     async (calls: Call[]) => {
       if (!client || !address) throw new Error("Wallet not ready");
-      const allowance = await publicClient.readContract({
-        address: ADDR.usdc,
-        abi: usdcAbi,
-        functionName: "allowance",
-        args: [address, ADDR.paymaster],
-      });
-      // First op batches the paymaster approval so gas can be charged in USDC.
-      const approve: Call[] =
-        allowance < BigInt(1e6)
-          ? [{ to: ADDR.usdc, data: encodeFunctionData({ abi: usdcAbi, functionName: "approve", args: [ADDR.paymaster, maxUint256] }) }]
-          : [];
-      const hash = await client.sendTransaction({ calls: [...approve, ...calls] });
+      await ensurePaymasterBudget(client, address);
+      const hash = await sendOp(client, calls);
       await publicClient.waitForTransactionReceipt({ hash });
       setKnownBalance(address, await refresh());
       return hash;

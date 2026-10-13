@@ -29,6 +29,8 @@ contract BillPay {
     error NotPending();
     error EmptyReference();
     error TooEarly();
+    error NotScheduler();
+    error SchedulerAlreadySet();
 
     event BillRequested(
         uint256 indexed orderId,
@@ -47,6 +49,9 @@ contract BillPay {
     address public immutable operator;
     address public immutable treasury;
 
+    /// Scheduler contract allowed to open orders on behalf of a payer who approved this contract.
+    address public scheduler;
+
     uint256 public nextId = 1;
     mapping(uint256 => Order) public orders;
 
@@ -59,13 +64,42 @@ contract BillPay {
     /// @param beneficiary @username the bill is paid for ("" = self). Display only.
     function pay(string calldata billType, string calldata account, uint96 amount, string calldata beneficiary)
         external
-        returns (uint256 id)
+        returns (uint256)
     {
+        return _open(msg.sender, billType, account, amount, beneficiary);
+    }
+
+    /// One-time wiring by the operator; afterwards only that scheduler can call payFor.
+    function setScheduler(address scheduler_) external {
+        if (msg.sender != operator) revert NotOperator();
+        if (scheduler != address(0)) revert SchedulerAlreadySet();
+        scheduler = scheduler_;
+    }
+
+    /// Opens an order paid from the payer's allowance, so refunds and reclaims go to the payer, not the scheduler.
+    function payFor(
+        address payer,
+        string calldata billType,
+        string calldata account,
+        uint96 amount,
+        string calldata beneficiary
+    ) external returns (uint256) {
+        if (msg.sender != scheduler) revert NotScheduler();
+        return _open(payer, billType, account, amount, beneficiary);
+    }
+
+    function _open(
+        address payer,
+        string calldata billType,
+        string calldata account,
+        uint96 amount,
+        string calldata beneficiary
+    ) private returns (uint256 id) {
         if (amount == 0) revert ZeroAmount();
         id = nextId++;
-        orders[id] = Order(msg.sender, amount, uint64(block.timestamp), Status.Pending);
-        usdc.safeTransferFrom(msg.sender, address(this), amount);
-        emit BillRequested(id, msg.sender, billType, account, amount, beneficiary);
+        orders[id] = Order(payer, amount, uint64(block.timestamp), Status.Pending);
+        usdc.safeTransferFrom(payer, address(this), amount);
+        emit BillRequested(id, payer, billType, account, amount, beneficiary);
     }
 
     function fulfill(uint256 id, string calldata ref) external {

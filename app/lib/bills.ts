@@ -17,8 +17,6 @@ type CategoryConfig = {
   /** "fetch": plans (and prices) come from VTpass. "static": fixed choices, free amount. none: free amount. */
   plans?: "fetch" | "static";
   staticPlans?: Plan[];
-  /** Whether people may publish this detail for friends to pay. Phone numbers are personal data, so airtime and data are not savable. */
-  saveable?: boolean;
 };
 
 const NETWORKS = (suffix: string): Provider[] => [
@@ -50,7 +48,6 @@ export const CATEGORIES: Record<Category, CategoryConfig> = {
       { id: "yola-electric", name: "Yola" },
     ],
     plans: "static",
-    saveable: true,
     staticPlans: [
       { code: "prepaid", name: "Prepaid", ngn: 0 },
       { code: "postpaid", name: "Postpaid", ngn: 0 },
@@ -66,7 +63,6 @@ export const CATEGORIES: Record<Category, CategoryConfig> = {
       { id: "startimes", name: "Startimes" },
     ],
     plans: "fetch",
-    saveable: true,
   },
 };
 
