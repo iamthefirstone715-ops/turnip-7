@@ -29,7 +29,7 @@ The app approves the paymaster for a small gas budget (2 USDC) and tops it up wh
 
 ## Demo video
 
-`docs/klink-demo.mp4` (about 2 minutes). It replays a real run on Monad testnet as stills under a voiceover: a send, a bill paid through escrow (VTpass sandbox), and a recurring payment that ran twice. The refund card is output from the local-chain test, not a live run. Rebuild it with `docs/demo-video/build.mjs`.
+A video of about 2 minutes (submitted with the entry, not stored in this repo). It replays a real run on Monad testnet as stills under a voiceover: a send, a bill paid through escrow (VTpass sandbox), and a recurring payment that ran twice. The refund card is output from the local-chain test, not a live run. Rebuild it with `docs/demo-video/build.mjs`.
 
 ## What has been verified
 

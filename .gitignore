@@ -46,3 +46,4 @@ worker/.smoke-key
 # demo video build scratch and raw narration (the finished video is docs/klink-demo.mp4)
 docs/demo-video/work/
 docs/demo-video/audio/
+docs/klink-demo.mp4
