@@ -56,7 +56,7 @@ export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, sec
     }
     if (j?.code === "000" && (status === "pending" || status === "initiated")) return { pending: true };
     if (j?.code === "099" || j?.code === "089") return { pending: true }; // processing
-    if (j?.code === "014") return { pending: true }; // request id already used: another worker bought it, requery gives the result
+    if (j?.code === "014" || j?.code === "007") return { pending: true }; // id already used / purchase initiated: another worker is buying it, requery gives the result
     if (status === "failed" || status === "reversed") return { ok: false, reason: `vtpass ${status}` };
     // Any other code is a definitive rejection (bad number, low wallet, etc.).
     return { ok: false, reason: `vtpass code ${j?.code ?? "unknown"}: ${j?.response_description ?? ""}` };
@@ -115,6 +115,17 @@ export function vtpass({ baseUrl = "https://sandbox.vtpass.com/api", apiKey, sec
           const q = await call("/requery", { request_id });
           if (q?.content?.transactions?.status) r = classify(q); // an answer without a transaction in it tells us nothing: keep waiting
         } catch {}
+      }
+      // Never refund on our own say-so. If another worker's purchase is in flight, VTpass may have answered us with a code we
+      // don't know: ask once more, and only refund if VTpass has no purchase for this order or says it failed.
+      if (r.ok === false) {
+        try {
+          const q = await call("/requery", { request_id });
+          const st = q?.content?.transactions?.status;
+          if (st && st !== "failed" && st !== "reversed") r = classify(q);
+        } catch {
+          return { pending: true }; // can't check: leave it escrowed rather than refund a purchase that may exist
+        }
       }
       return r;
     },

@@ -53,3 +53,5 @@ public/_demo/
 
 .vercel
 .env*
+docs/demo-video/audio2/
+docs/demo-video/rec/

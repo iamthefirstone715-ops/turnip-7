@@ -155,3 +155,25 @@ test("a provider the app does not offer is refused, even if the chain says so", 
   }
   assert.equal(posts.length, 0);
 });
+
+test("code 007 (another worker's purchase is in flight) is pending, never a refund", async () => {
+  const fetchImpl = async (url) => ({ json: async () => (String(url).includes("/requery") ? NEW : { code: "007", response_description: "TRANSACTION INITIATED" }) });
+  assert.deepEqual(await make(fetchImpl).fulfill(fresh), { pending: true });
+});
+
+test("before refunding, VTpass is asked once more: a purchase that exists is not refunded", async () => {
+  let requeries = 0;
+  const fetchImpl = async (url) => {
+    if (!String(url).includes("/requery")) return { json: async () => ({ code: "999", response_description: "something we have never seen" }) };
+    requeries++;
+    // first look (before buying): never used. Second look (before refunding): it was bought after all.
+    return { json: async () => (requeries === 1 ? NEW : { code: "000", purchased_code: "Token : 7", content: { transactions: { status: "delivered" } } }) };
+  };
+  assert.deepEqual(await make(fetchImpl).fulfill(fresh), { ok: true, ref: "Token : 7" });
+});
+
+test("a real rejection that VTpass has no record of is still refunded", async () => {
+  const fetchImpl = async (url) => ({ json: async () => (String(url).includes("/requery") ? NEW : { code: "016", response_description: "TRANSACTION FAILED" }) });
+  const r = await make(fetchImpl).fulfill(fresh);
+  assert.equal(r.ok, false);
+});
