@@ -4,7 +4,7 @@ Record the browser at http://localhost:3000 with the worker running (`npm run wo
 
 | Time | On screen | Say |
 |---|---|---|
-| 0:00 | Landing page | "To pay a normal bill from a crypto wallet today, you first need a second token just for fees. PAY removes that." |
+| 0:00 | Landing page | "To pay a normal bill from a crypto wallet today, you first need a second token just for fees. Klink removes that." |
 | 0:08 | Sign in with email, then the claim page | "Sign in with email. No seed phrase. Pick a name." |
 | 0:15 | Claim page hint "Add a little USDC first (gas is paid in USDC)" | "There is no gas token to buy. The fee comes out of the USDC." |
 | 0:22 | Claim `@name`, success, dashboard counts up | "Claiming is one on-chain transaction. The account holds zero MON, and the fee was about half a cent in USDC." |

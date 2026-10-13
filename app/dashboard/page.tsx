@@ -188,7 +188,7 @@ export default function Dashboard() {
               className="font-[family-name:var(--font-bebas-neue)]"
               style={{ fontSize: 18, letterSpacing: 2, color: "#2e1065" }}
             >
-              PAY
+              KLINK
             </span>
             <span style={{ display: "flex", gap: 14 }}>
               <button

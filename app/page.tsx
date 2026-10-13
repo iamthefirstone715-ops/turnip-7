@@ -67,7 +67,7 @@ export default function Landing() {
           className="font-[family-name:var(--font-bebas-neue)]"
           style={{ fontSize: 28, letterSpacing: 1, color: "#2e1065" }}
         >
-          PAY
+          KLINK
         </span>
         <button
           className="btn"

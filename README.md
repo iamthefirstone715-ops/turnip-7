@@ -1,4 +1,4 @@
-# PAY
+# Klink
 
 Send money and pay bills by @username, holding only USDC. No addresses, no gas token, no seed phrase.
 
@@ -6,7 +6,7 @@ Built for Monad Metropolis, Consumer Products & Payments track. Runs on Monad te
 
 ## The problem
 
-A crypto wallet can't pay a normal bill, and a new user can't even send USDC without first buying a second token for gas. PAY removes both:
+A crypto wallet can't pay a normal bill, and a new user can't even send USDC without first buying a second token for gas. Klink removes both:
 
 - **One balance.** Users hold USDC only. The network fee is charged in USDC, so nobody ever needs MON.
 - **Names, not addresses.** Sign in with Google or email, claim `@name`, send to `@name`.

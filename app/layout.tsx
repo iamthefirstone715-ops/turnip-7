@@ -20,7 +20,7 @@ const bebasNeue = Bebas_Neue({
 });
 
 export const metadata: Metadata = {
-  title: "PAY",
+  title: "Klink",
   description: "Send money and pay bills by @username.",
 };
 
