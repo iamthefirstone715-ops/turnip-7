@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { encodeFunctionData, zeroAddress } from "viem";
 import DotCanvas from "../components/DotCanvas";
+import { CATEGORY_ICON, Icon, IconTile, Label, Pill, panel } from "../components/Kit";
 import { useWallet } from "../providers";
 import { ADDR, cleanAmount, fmtUsd, publicClient, registryAbi, schedulerAbi, toUnits, usdcAbi } from "../lib/web3";
-import { CATEGORIES, encodeBill, type Category } from "../lib/bills";
+import { CATEGORIES, type Category } from "../lib/bills";
 import { SCHEDULABLE, intervalSeconds, type Interval, type Proposal } from "../lib/schedule";
-import { contactName, loadContacts, removeContact, saveContact } from "../lib/contacts";
+import { contactName, loadContacts, removeContact } from "../lib/contacts";
+import { startSchedule } from "../lib/actions";
 import { card, field, primaryBtn, select } from "../lib/ui";
 
 type Row = { id: bigint; amount: bigint; interval: number; nextDue: number; runsLeft: number; billType: string; account: string; beneficiary: string };
@@ -198,19 +200,11 @@ export default function Schedules() {
     setError("");
     setBusy("start");
     try {
-      const per = toUnits(amount);
-      const cap = per * BigInt(runsNum);
-      const billType = encodeBill(category, provider, category === "electricity" ? meterType : undefined);
-      await exec([
-        { to: ADDR.usdc, data: encodeFunctionData({ abi: usdcAbi, functionName: "approve", args: [ADDR.billPay, (await allowanceNow()) + cap] }) },
-        {
-          to: ADDR.scheduler,
-          data: encodeFunctionData({ abi: schedulerAbi, functionName: "create", args: [billType, account, "", per, intervalSeconds(interval, minsNum), runsNum, BigInt(0)] }), // who it's for is never published
-        },
-      ]);
-      if (remember && address && personKey) {
-        saveContact(address, { name: personKey, category, provider, plan: category === "electricity" ? meterType : "", account });
-      }
+      if (!address) return;
+      await startSchedule(
+        { address, name: "", balance, exec },
+        { category, provider, plan: category === "electricity" ? meterType : "", account, person: personKey, remember, perRun: amount, runs: runsNum, intervalSeconds: intervalSeconds(interval, minsNum) },
+      );
       setDone("Schedule started. The first payment goes out within a few seconds.");
       setFormOpen(false);
       setText("");
@@ -304,21 +298,50 @@ export default function Schedules() {
             <span className="font-[family-name:var(--font-bebas-neue)]" style={heading}>
               CHECK THE DETAILS
             </span>
-            {note && <p style={{ ...small, fontStyle: "italic" }}>“{note}”. Fix anything that&apos;s wrong or missing below.</p>}
+            {note && (
+              <p style={{ ...small, display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 12, background: "rgba(255,255,255,0.4)", color: "#2e1065" }}>
+                <Icon name="repeat" size={16} color="#5b3fa3" />
+                <span>
+                  <strong>{note}</strong>
+                  <span style={{ display: "block", color: "#5b3fa3" }}>Filled in from your sentence. Fix anything that&apos;s wrong or missing.</span>
+                </span>
+              </p>
+            )}
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6, marginBottom: 12 }}>
-              {SCHEDULABLE.map((id) => (
-                <button
-                  key={id}
-                  onClick={() => pick(id)}
-                  style={{ padding: "8px 0", borderRadius: 999, border: "1px solid rgba(76,29,149,0.25)", cursor: "pointer", fontSize: 12, fontWeight: 600, background: category === id ? "#2e1065" : "rgba(255,255,255,0.65)", color: category === id ? "#fff" : "#2e1065" }}
-                >
-                  {CATEGORIES[id].label}
-                </button>
-              ))}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginBottom: 14 }}>
+              {SCHEDULABLE.map((id) => {
+                const on = category === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => pick(id)}
+                    aria-pressed={on}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      padding: "10px 0",
+                      borderRadius: 14,
+                      border: `1px solid ${on ? "#2e1065" : "rgba(76,29,149,0.2)"}`,
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      background: on ? "linear-gradient(135deg, #4c1d95, #2e1065)" : "rgba(255,255,255,0.55)",
+                      color: on ? "#fff" : "#2e1065",
+                      boxShadow: on ? "0 8px 18px rgba(76, 29, 149, 0.28)" : "none",
+                    }}
+                  >
+                    <Icon name={CATEGORY_ICON[id]} size={16} />
+                    {CATEGORIES[id].label}
+                  </button>
+                );
+              })}
             </div>
 
+            <Label htmlFor="s-who">Who it&apos;s for</Label>
             <input
+              id="s-who"
               value={recipient}
               onChange={(e) => {
                 const v = e.target.value.slice(0, 30);
@@ -331,10 +354,10 @@ export default function Schedules() {
                   setProvider("");
                 }
               }}
-              placeholder="Who is it for? @username, or a name like mum"
+              placeholder="@username, or a name like mum"
               style={{ ...field, marginBottom: 4 }}
             />
-            <p style={{ ...small, margin: "0 0 10px", minHeight: 16, color: noUser || (personKey && !nameValid && !checking) ? "#b42318" : savedContact ? "#1a7f37" : "#5b3fa3" }}>
+            <p style={{ ...small, margin: "0 0 10px", minHeight: 16, color: noUser || (personKey && !nameValid && !checking) ? "#b42318" : savedContact ? "#1a7f37" : "#5b3fa3", fontWeight: savedContact ? 600 : 400 }}>
               {!personKey
                 ? "Leave empty to pay for yourself."
                 : personKey.startsWith("@") && !handleOk
@@ -347,58 +370,90 @@ export default function Schedules() {
                         ? "Names can use letters and spaces."
                         : savedContact
                           ? `Using your saved details for ${personKey}.`
-                          : `Enter ${personKey}'s details once below. I'll remember them on this device, so next time the name is enough.`}
+                          : `Enter ${personKey}'s details once. Next time the name is enough.`}
             </p>
 
-            <select value={provider} onChange={(e) => setProvider(e.target.value)} style={select} aria-label={bill.providerLabel}>
-              <option value="" disabled>
-                {bill.providerLabel}…
-              </option>
-              {bill.providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            {category === "electricity" && (
-              <select value={meterType} onChange={(e) => setMeterType(e.target.value as "prepaid" | "postpaid")} style={select} aria-label="Meter type">
-                <option value="prepaid">Prepaid</option>
-                <option value="postpaid">Postpaid</option>
-              </select>
-            )}
-            <input value={account} onChange={(e) => setAccount(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder={bill.field} style={field} />
-            {personKey && nameValid && !unchangedContact && (
-              <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: "#5b3fa3", margin: "0 0 10px", cursor: "pointer" }}>
-                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-                {savedContact ? `Update ${personKey}'s saved details` : `Remember ${personKey} for next time (saved on this device only)`}
-              </label>
-            )}
-            <input value={amount} onChange={(e) => setAmount(cleanAmount(e.target.value))} inputMode="decimal" placeholder="Amount per payment in $" style={field} />
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <select value={interval} onChange={(e) => setIntervalKind(e.target.value as Interval)} style={{ ...select, flex: 1 }} aria-label="How often">
-                <option value="monthly">Every month</option>
-                <option value="weekly">Every week</option>
-                <option value="daily">Every day</option>
-                <option value="minutes">Every few minutes (demo)</option>
-              </select>
-              <input value={runs} onChange={(e) => setRuns(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" aria-label="Number of payments" style={{ ...field, width: 78 }} />
-            </div>
-            {interval === "minutes" && <input value={minutes} onChange={(e) => setMinutes(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="Minutes between payments" style={field} />}
-            <p style={{ ...small, margin: "0 0 4px" }}>The number box is how many payments in total.</p>
-
-            <p style={{ margin: "8px 0 14px", fontSize: 13, color: "#2e1065", fontWeight: 600, lineHeight: 1.5 }}>
-              {formOk ? (
-                <>
-                  ${amountNum.toFixed(2)} every {every(intervalSeconds(interval, minsNum))}, {runsNum} times. You approve up to <strong>${total.toFixed(2)}</strong> in total, and the first payment goes out right away.
-                </>
-              ) : (
-                "Fill in the missing details to continue."
+            <div style={panel}>
+              <div style={{ display: "grid", gridTemplateColumns: category === "electricity" ? "1fr 1fr" : "1fr", gap: 8 }}>
+                <div>
+                  <Label htmlFor="s-provider">{bill.providerLabel}</Label>
+                  <select id="s-provider" value={provider} onChange={(e) => setProvider(e.target.value)} style={select}>
+                    <option value="" disabled>
+                      Choose…
+                    </option>
+                    {bill.providers.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {category === "electricity" && (
+                  <div>
+                    <Label htmlFor="s-meter">Meter type</Label>
+                    <select id="s-meter" value={meterType} onChange={(e) => setMeterType(e.target.value as "prepaid" | "postpaid")} style={select}>
+                      <option value="prepaid">Prepaid</option>
+                      <option value="postpaid">Postpaid</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+              <Label htmlFor="s-account">{bill.field}</Label>
+              <input id="s-account" value={account} onChange={(e) => setAccount(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder={category === "electricity" ? "13 digits" : "080…"} style={field} />
+              {personKey && nameValid && !unchangedContact && (
+                <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, fontWeight: 600, color: "#2e1065", margin: "0 0 10px", cursor: "pointer" }}>
+                  <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ accentColor: "#4c1d95", width: 16, height: 16 }} />
+                  {savedContact ? `Update ${personKey}'s saved details` : `Remember ${personKey} on this device`}
+                </label>
               )}
-              {formOk && balance < toUnits(amount) && <span style={{ display: "block", color: "#b42318", fontWeight: 400 }}>Your balance is {fmtUsd(balance)}, less than the first payment.</span>}
-            </p>
+            </div>
 
-            <button className="btn" disabled={!formOk || !!busy} onClick={start} style={{ ...primaryBtn, opacity: formOk ? 1 : 0.65, cursor: formOk && !busy ? "pointer" : "not-allowed" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 0.7fr", gap: 8 }}>
+              <div>
+                <Label htmlFor="s-amount">Each time</Label>
+                <div style={{ ...field, display: "flex", alignItems: "center", padding: "0 0 0 12px" }}>
+                  <span className="font-[family-name:var(--font-bebas-neue)]" style={{ fontSize: 20, color: "#5b3fa3" }}>
+                    $
+                  </span>
+                  <input id="s-amount" value={amount} onChange={(e) => setAmount(cleanAmount(e.target.value))} inputMode="decimal" placeholder="0.00" className="font-[family-name:var(--font-bebas-neue)]" style={{ ...field, margin: 0, border: "none", background: "transparent", fontSize: 20, padding: "8px 6px" }} />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="s-every">How often</Label>
+                <select id="s-every" value={interval} onChange={(e) => setIntervalKind(e.target.value as Interval)} style={select}>
+                  <option value="monthly">Every month</option>
+                  <option value="weekly">Every week</option>
+                  <option value="daily">Every day</option>
+                  <option value="minutes">Every few minutes (demo)</option>
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="s-runs">Times</Label>
+                <input id="s-runs" value={runs} onChange={(e) => setRuns(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" style={field} />
+              </div>
+            </div>
+            {interval === "minutes" && (
+              <>
+                <Label htmlFor="s-mins">Minutes between payments</Label>
+                <input id="s-mins" value={minutes} onChange={(e) => setMinutes(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" style={field} />
+              </>
+            )}
+
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start", margin: "4px 0 14px", padding: "12px 14px", borderRadius: 14, background: formOk ? "rgba(26, 127, 55, 0.08)" : "rgba(46, 16, 101, 0.06)", border: `1px solid ${formOk ? "rgba(26, 127, 55, 0.25)" : "rgba(46, 16, 101, 0.1)"}` }}>
+              <Icon name={formOk ? "shield" : "lock"} size={18} color={formOk ? "#1a7f37" : "#5b3fa3"} />
+              <p style={{ margin: 0, fontSize: 13, color: "#2e1065", fontWeight: 600, lineHeight: 1.5 }}>
+                {formOk ? (
+                  <>
+                    ${amountNum.toFixed(2)} every {every(intervalSeconds(interval, minsNum))}, {runsNum} times. You approve up to <strong>${total.toFixed(2)}</strong> and it can never spend more. The first payment goes out right away.
+                  </>
+                ) : (
+                  "Fill in the missing details to continue."
+                )}
+                {formOk && balance < toUnits(amount) && <span style={{ display: "block", color: "#b42318", fontWeight: 400 }}>Your balance is {fmtUsd(balance)}, less than the first payment.</span>}
+              </p>
+            </div>
+
+            <button className="btn" disabled={!formOk || !!busy} onClick={start} style={{ ...primaryBtn, opacity: formOk ? 1 : 0.6, cursor: formOk && !busy ? "pointer" : "not-allowed" }}>
               {busy === "start" ? <span className="spinner" style={{ borderColor: "rgba(255,255,255,0.3)", borderTopColor: "#fff" }} /> : "Start schedule"}
             </button>
           </div>
@@ -413,13 +468,15 @@ export default function Schedules() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {rows.map((r) => (
-                <div key={String(r.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                  <div style={{ minWidth: 0 }}>
+                <div key={String(r.id)} className="anim-fade-up" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <IconTile name={CATEGORY_ICON[r.billType.split(":")[0]] ?? "repeat"} tone="good" />
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#2e1065", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{describe(r)}</p>
                     <p style={{ margin: 0, fontSize: 12, color: "rgba(46, 16, 101, 0.6)" }}>
                       {fmtUsd(r.amount)} every {every(r.interval)} · {r.runsLeft} left · next {when(r.nextDue, now)}
                     </p>
                   </div>
+                  <Pill tone="good">Active</Pill>
                   <button onClick={() => cancel(r)} disabled={!!busy} style={{ ...linkBtn, color: "#b42318", flexShrink: 0 }}>
                     {busy === `cancel-${r.id}` ? "…" : "Cancel"}
                   </button>

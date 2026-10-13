@@ -47,3 +47,9 @@ worker/.smoke-key
 docs/demo-video/work/
 docs/demo-video/audio/
 docs/klink-demo.mp4
+
+# local-only phone frame used to record the demo
+public/_demo/
+
+.vercel
+.env*

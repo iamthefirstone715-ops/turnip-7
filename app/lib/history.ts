@@ -11,6 +11,7 @@ export type Entry = {
   status: string;
   hash?: string;
   ref?: string;
+  orderId?: string; // BillPay order, for bills: lets the dashboard tell them apart from scheduled runs
 };
 
 const hKey = (a: Address) => `pay:history:${a.toLowerCase()}`;

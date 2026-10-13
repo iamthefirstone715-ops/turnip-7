@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { encodeFunctionData, zeroAddress, type Hex } from "viem";
+import { type Hex } from "viem";
 import DotCanvas from "../components/DotCanvas";
 import GlassCard from "../components/GlassCard";
 import Confetti from "../components/Confetti";
 import { useWallet } from "../providers";
-import { addEntry } from "../lib/history";
-import { ADDR, chain, fmtUsd, publicClient, registryAbi, cleanAmount, toUnits, usdcAbi } from "../lib/web3";
+import { sendMoney } from "../lib/actions";
+import { chain, fmtUsd, cleanAmount } from "../lib/web3";
 
 export default function Send() {
   const [to, setTo] = useState("");
@@ -27,20 +27,8 @@ export default function Send() {
     setError("");
     setStatus("sending");
     try {
-      const recipient = await publicClient.readContract({
-        address: ADDR.registry,
-        abi: registryAbi,
-        functionName: "resolve",
-        args: [to],
-      });
-      if (recipient === zeroAddress) throw new Error(`@${to} doesn't exist`);
-      if (to === name) throw new Error("You can't send to yourself");
-      const value = toUnits(amount);
-      if (value > balance) throw new Error("Not enough balance");
-      const tx = await exec([
-        { to: ADDR.usdc, data: encodeFunctionData({ abi: usdcAbi, functionName: "transfer", args: [recipient, value] }) },
-      ]);
-      if (address) addEntry(address, { kind: "sent", title: `To @${to}`, amount: Number(value) / 1e6, status: "Completed", hash: tx });
+      if (!address) return;
+      const tx = await sendMoney({ address, name, balance, exec }, to, amount);
       setHash(tx);
       setStatus("sent");
     } catch (e) {

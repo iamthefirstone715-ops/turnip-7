@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 
-export default function GlassCard({ children }: { children: ReactNode }) {
+export default function GlassCard({ children, width = 340 }: { children: ReactNode; width?: number }) {
   return (
     <div
       className="anim-scale-in"
@@ -9,7 +9,9 @@ export default function GlassCard({ children }: { children: ReactNode }) {
         top: "50%",
         left: "50%",
         translate: "-50% -50%",
-        width: 340,
+        width,
+        maxWidth: "calc(100vw - 32px)",
+        boxSizing: "border-box",
         padding: "32px 28px",
         borderRadius: 20,
         background: "rgba(255, 255, 255, 0.32)",

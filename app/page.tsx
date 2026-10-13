@@ -19,6 +19,7 @@ const features = [
   },
 ];
 
+// Illustrative only: the signed-out page shows what a payment looks like, not real activity.
 const pings = [
   { from: "mara", amount: "42.50" },
   { from: "delano", amount: "12.00" },
@@ -59,7 +60,7 @@ export default function Landing() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "24px 40px",
+          padding: "24px clamp(16px, 5vw, 40px)",
           fontFamily: "system-ui, sans-serif",
         }}
       >
@@ -121,6 +122,7 @@ export default function Landing() {
                   boxShadow: "0 0 0 3px rgba(26, 127, 55, 0.2)",
                 }}
               />
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "#5b3fa3" }}>Example</span>
               <strong>@{pings[ping].from}</strong> sent you
               <strong style={{ color: "#1a7f37" }}>${pings[ping].amount}</strong>
             </div>
@@ -131,7 +133,7 @@ export default function Landing() {
           className="font-[family-name:var(--font-bebas-neue)]"
           style={{
             margin: "0 0 18px",
-            fontSize: 72,
+            fontSize: "clamp(38px, 10vw, 72px)",
             lineHeight: 1.05,
             color: "#2e1065",
             letterSpacing: 1,
@@ -219,7 +221,7 @@ export default function Landing() {
           flexWrap: "wrap",
           justifyContent: "center",
           gap: 20,
-          padding: "20px 40px 80px",
+          padding: "20px clamp(16px, 5vw, 40px) 80px",
           fontFamily: "system-ui, sans-serif",
         }}
       >
@@ -229,6 +231,8 @@ export default function Landing() {
             className="anim-fade-up btn"
             style={{
               width: 260,
+              maxWidth: "100%",
+              boxSizing: "border-box",
               padding: "24px 22px",
               borderRadius: 16,
               background: "rgba(255, 255, 255, 0.2)",

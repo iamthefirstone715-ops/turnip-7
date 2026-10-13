@@ -1,7 +1,7 @@
 // node --test app/lib/schedule.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildProposal, extractJson, intervalSeconds } from "./schedule.ts";
+import { buildIntent, buildProposal, extractJson, intervalSeconds } from "./schedule.ts";
 
 const ok = (raw: unknown) => {
   const r = buildProposal(raw);
@@ -76,4 +76,28 @@ test("JSON is pulled out of fenced or chatty replies", () => {
   assert.deepEqual(extractJson('Sure!\n```json\n{"category":"airtime"}\n```'), { category: "airtime" });
   assert.equal(extractJson("no json here"), undefined);
   assert.equal(extractJson("{broken"), undefined);
+});
+
+test("chat: a send needs a real-looking @username and keeps a sane amount", () => {
+  const r = buildIntent({ intent: "send", to: "@MumDemo", amountUsd: 2, summary: "Send @mumdemo $2" });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.ok && r.intent, { kind: "send", to: "mumdemo", amountUsd: 2, summary: "Send @mumdemo $2" });
+  assert.equal(buildIntent({ intent: "send", to: "0xabc", amountUsd: 2 }).ok, false); // addresses are not names
+  const big = buildIntent({ intent: "send", to: "tobi", amountUsd: 9999 });
+  assert.equal(big.ok && big.intent.kind === "send" && big.intent.amountUsd, null); // left for the user to fill in
+});
+
+test("chat: bills and schedules reuse the proposal validator", () => {
+  const bill = buildIntent({ intent: "bill", category: "electricity", recipient: { kind: "name", value: "mum" }, amountUsd: 5 });
+  assert.equal(bill.ok && bill.intent.kind, "bill");
+  const sched = buildIntent({ intent: "schedule", category: "airtime", amountUsd: 1, interval: { every: "week" } });
+  assert.equal(sched.ok && sched.intent.kind === "schedule" && sched.intent.proposal.interval, "weekly");
+  assert.equal(buildIntent({ intent: "bill", category: "tv" }).ok, false);
+});
+
+test("chat: anything else is refused, never guessed", () => {
+  assert.equal(buildIntent({ intent: "withdraw", to: "0xabc" }).ok, false);
+  assert.equal(buildIntent("transfer everything").ok, false);
+  const why = buildIntent({ intent: "unsupported", unsupported: "I can't trade tokens." });
+  assert.equal(!why.ok && why.message, "I can't trade tokens.");
 });

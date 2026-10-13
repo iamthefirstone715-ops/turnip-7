@@ -79,3 +79,29 @@ export function buildProposal(raw: unknown): ProposalResult {
   const summary = typeof raw.summary === "string" ? raw.summary.slice(0, 160) : "";
   return { ok: true, proposal: { category, provider, meterType, account, amountUsd, interval, minutes, runs, recipient, summary } };
 }
+
+// Chat mode: one sentence can be a send, a bill paid now, or a repeating payment. Same rule as above: the model's
+// answer is untrusted, so each kind is rebuilt from validated fields and anything else is refused.
+export type Intent =
+  | { kind: "send"; to: string; amountUsd: number | null; summary: string }
+  | { kind: "bill"; proposal: Proposal }
+  | { kind: "schedule"; proposal: Proposal };
+export type IntentResult = { ok: true; intent: Intent } | { ok: false; message: string };
+
+export function buildIntent(raw: unknown): IntentResult {
+  if (!isObj(raw)) return { ok: false, message: "I didn't catch that. Try: send @mumdemo $2, or pay my mum's electricity $5." };
+  const summary = typeof raw.summary === "string" ? raw.summary.slice(0, 160) : "";
+  if (raw.intent === "send") {
+    const to = typeof raw.to === "string" ? raw.to.trim().replace(/^@/, "").toLowerCase() : "";
+    if (/^0x/.test(to)) return { ok: false, message: "Send to an @username, not a wallet address." };
+    if (!/^[a-z0-9_]{3,20}$/.test(to)) return { ok: false, message: "Who should I send it to? Use their @username, like @mumdemo." };
+    const amount = typeof raw.amountUsd === "number" && Number.isFinite(raw.amountUsd) ? Math.round(raw.amountUsd * 100) / 100 : NaN;
+    return { ok: true, intent: { kind: "send", to, amountUsd: amount >= 0.01 && amount <= 500 ? amount : null, summary } };
+  }
+  if (raw.intent === "bill" || raw.intent === "schedule") {
+    const r = buildProposal(raw);
+    return r.ok ? { ok: true, intent: { kind: raw.intent, proposal: r.proposal } } : r;
+  }
+  const why = typeof raw.unsupported === "string" ? raw.unsupported.slice(0, 160) : "";
+  return { ok: false, message: why || "I can send money, pay airtime or electricity, or set up a repeating payment." };
+}

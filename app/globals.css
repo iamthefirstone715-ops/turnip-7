@@ -140,6 +140,15 @@ body {
   vertical-align: -1px;
 }
 
+/* Chat panel: on a phone it sits below the Chat/Buttons switch and uses the full width. */
+.chat-panel { top: 20px; bottom: 20px; }
+@media (max-width: 700px) {
+  .chat-panel { top: 70px; bottom: 10px; max-width: calc(100vw - 20px) !important; border-radius: 20px !important; }
+}
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.pulse-dot { display: inline-block; animation: pulse 1.2s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

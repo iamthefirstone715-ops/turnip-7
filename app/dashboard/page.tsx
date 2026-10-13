@@ -7,9 +7,15 @@ import { useWallet } from "../providers";
 import { loadHistory, syncReceived, updateEntry, type Entry } from "../lib/history";
 import { encodeFunctionData } from "viem";
 import { ADDR, billPayAbi, fmtUsd, orderIdOf, publicClient, settlementOf } from "../lib/web3";
+import { IconTile, Pill, toneOf, type IconName } from "../components/Kit";
+import Chat from "../components/Chat";
+import ModeToggle from "../components/ModeToggle";
+import { useMode } from "../lib/mode";
 
 const cardStyle: CSSProperties = {
   width: 480,
+  maxWidth: "calc(100vw - 32px)",
+  boxSizing: "border-box",
   padding: "24px 28px",
   borderRadius: 16,
   background: "rgba(236, 224, 255, 0.55)",
@@ -48,9 +54,11 @@ const linkBtn: CSSProperties = {
   textTransform: "uppercase",
 };
 
-type Held = { id: bigint; amount: bigint; createdAt: number };
+type Held = { id: bigint; amount: bigint; createdAt: number; status: number };
 const PENDING = 1;
+const FULFILLED = 2;
 
+// Every order this account opened (bills it paid, and runs the scheduler opened for it).
 // ponytail: scans the latest 200 orders; an indexer would replace this if order volume grows
 async function loadHeld(payer: string): Promise<Held[]> {
   const next = await publicClient.readContract({ address: ADDR.billPay, abi: billPayAbi, functionName: "nextId" });
@@ -61,9 +69,24 @@ async function loadHeld(payer: string): Promise<Held[]> {
     ids.map((id) => publicClient.readContract({ address: ADDR.billPay, abi: billPayAbi, functionName: "orders", args: [id] }).then((o) => ({ id, o }))),
   );
   return orders
-    .filter(({ o }) => o[0].toLowerCase() === payer.toLowerCase() && o[3] === PENDING)
-    .map(({ id, o }) => ({ id, amount: o[1], createdAt: Number(o[2]) }));
+    .filter(({ o }) => o[0].toLowerCase() === payer.toLowerCase())
+    .map(({ id, o }) => ({ id, amount: o[1], createdAt: Number(o[2]), status: o[3] }));
 }
+
+const rowIcon = (a: Entry): IconName =>
+  a.id.startsWith("run-")
+    ? "repeat"
+    : a.kind === "received"
+      ? "receive"
+      : a.kind === "sent"
+        ? "send"
+        : /electric/i.test(a.title)
+          ? "zap"
+          : /data/i.test(a.title)
+            ? "wifi"
+            : /tv|dstv|gotv|startimes|showmax/i.test(a.title)
+              ? "tv"
+              : "phone";
 
 const TIMEOUT_S = 3600; // BillPay.TIMEOUT
 
@@ -88,6 +111,7 @@ export default function Dashboard() {
   const [reclaimError, setReclaimError] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [histVersion, setHistVersion] = useState(0);
+  const mode = useMode();
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -124,17 +148,23 @@ export default function Dashboard() {
     else if (loaded && !name) router.replace("/claim-username");
   }, [ready, authenticated, loaded, name, router]);
 
-  // A bill left "Processing" (the page was closed before the worker settled it) is settled from the order on-chain.
+  // Each bill learns its order id once (so scheduled runs can be told apart), and a bill left "Processing"
+  // (the page was closed before the worker settled it) is settled from the order on-chain.
   useEffect(() => {
     if (!address || !loaded) return;
     let live = true;
     for (const e of loadHistory(address)) {
-      if (e.kind !== "bill" || e.status !== "Processing" || !e.hash) continue;
+      if (e.kind !== "bill" || !e.hash || (e.orderId && e.status !== "Processing")) continue;
       orderIdOf(e.hash as `0x${string}`)
-        .then((id) => (id === undefined ? undefined : settlementOf(id)))
-        .then((done) => {
-          if (!live || !done) return;
-          updateEntry(address, e.hash!, done.status === "fulfilled" ? { status: "Paid", ref: done.ref || undefined } : { status: "Refunded" });
+        .then(async (id) => {
+          if (id === undefined) return;
+          const patch: Partial<Entry> = { orderId: String(id) };
+          if (e.status === "Processing") {
+            const done = await settlementOf(id);
+            if (done) Object.assign(patch, done.status === "fulfilled" ? { status: "Paid", ref: done.ref || undefined } : { status: "Refunded" });
+          }
+          if (!live) return;
+          updateEntry(address, e.hash!, patch);
           setHistVersion((v) => v + 1);
         })
         .catch(() => {});
@@ -149,8 +179,27 @@ export default function Dashboard() {
     if (!address || !loaded) return [];
     syncReceived(address, bal);
     void histVersion; // re-read after a pending bill is settled
-    return loadHistory(address);
-  }, [address, loaded, bal, histVersion]);
+    const history = loadHistory(address);
+    // Orders this account opened that it never paid from this page are the scheduler's runs. Wait until every bill here
+    // knows its order id, or a bill could briefly show twice.
+    const known = new Set(history.map((e) => e.orderId).filter(Boolean));
+    const ready = history.every((e) => e.kind !== "bill" || !e.hash || e.orderId);
+    const runs: Entry[] = ready
+      ? held
+          .filter((o) => !known.has(String(o.id)))
+          .map((o) => ({
+            id: `run-${o.id}`,
+            kind: "bill",
+            title: "Scheduled payment",
+            amount: Number(o.amount) / 1e6,
+            ts: o.createdAt * 1000,
+            status: o.status === FULFILLED ? "Paid" : o.status === PENDING ? "Processing" : "Refunded",
+            orderId: String(o.id),
+          }))
+      : [];
+    return [...history, ...runs].sort((a, b) => b.ts - a.ts);
+  }, [address, loaded, bal, histVersion, held]);
+  const onHold = held.filter((h) => h.status === PENDING);
 
   const copyAddress = async () => {
     if (!address) return;
@@ -159,18 +208,27 @@ export default function Dashboard() {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  if (mode === "chat")
+    return (
+      <>
+        <Chat />
+        <ModeToggle />
+      </>
+    );
+
   return (
-    <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
-      <DotCanvas />
+    <div style={{ position: "relative", minHeight: "100vh" }}>
+      <ModeToggle />
+      <div style={{ position: "fixed", inset: 0, zIndex: -1 }}>
+        <DotCanvas />
+      </div>
       <div
         style={{
-          position: "absolute",
-          top: 80,
-          left: "50%",
-          transform: "translateX(-50%)",
           display: "flex",
           flexDirection: "column",
+          alignItems: "center",
           gap: 20,
+          padding: "80px 16px 60px",
         }}
       >
         <div className="anim-fade-up" style={cardStyle}>
@@ -282,7 +340,7 @@ export default function Dashboard() {
 
         <div
           className="anim-fade-up"
-          style={{ ...cardStyle, animationDelay: "0.15s", display: held.length ? "block" : "none" }}
+          style={{ ...cardStyle, animationDelay: "0.15s", display: onHold.length ? "block" : "none" }}
         >
           <span
             className="font-[family-name:var(--font-bebas-neue)]"
@@ -293,7 +351,7 @@ export default function Dashboard() {
           <p style={{ margin: "0 0 12px", fontSize: 12, color: "#5b3fa3", lineHeight: 1.45 }}>
             These bills are still waiting for the provider. If one isn&apos;t delivered within an hour, you can take the money back.
           </p>
-          {held.map((h) => {
+          {onHold.map((h) => {
             const left = h.createdAt + TIMEOUT_S - Math.floor(now / 1000);
             return (
               <div key={String(h.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
@@ -348,45 +406,31 @@ export default function Dashboard() {
                 onClick={() => setSelected(a)}
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
                   alignItems: "center",
+                  gap: 12,
                   cursor: "pointer",
-                  padding: "8px 10px",
+                  padding: "9px 10px",
                   margin: "0 -10px",
+                  borderRadius: 12,
                   animationDelay: `${0.35 + i * 0.08}s`,
                 }}
               >
-                <div>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 14,
-                      fontWeight: 600,
-                      color: "#2e1065",
-                    }}
-                  >
-                    {a.title}
-                  </p>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: 12,
-                      color: "rgba(46, 16, 101, 0.55)",
-                    }}
-                  >
-                    {new Date(a.ts).toLocaleDateString()} · {a.status}
+                <IconTile name={rowIcon(a)} tone={a.kind === "received" ? "good" : "muted"} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#2e1065", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "rgba(46, 16, 101, 0.55)" }}>
+                    {new Date(a.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                   </p>
                 </div>
-                <span
-                  className="font-[family-name:var(--font-bebas-neue)]"
-                  style={{
-                    fontSize: 18,
-                    letterSpacing: 0.5,
-                    color: a.kind === "received" ? "#1a7f37" : "#2e1065",
-                  }}
-                >
-                  {a.kind === "received" ? "+" : "-"}${a.amount.toFixed(2)}
-                </span>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+                  <span
+                    className="font-[family-name:var(--font-bebas-neue)]"
+                    style={{ fontSize: 19, lineHeight: 1, letterSpacing: 0.5, color: a.kind === "received" ? "#1a7f37" : "#2e1065" }}
+                  >
+                    {a.kind === "received" ? "+" : "-"}${a.amount.toFixed(2)}
+                  </span>
+                  <Pill tone={toneOf(a.status)}>{a.status}</Pill>
+                </div>
               </div>
             ))}
           </div>
