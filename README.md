@@ -6,7 +6,7 @@ Built for Monad Metropolis, Consumer Products & Payments track. Runs on Monad te
 
 - **Live app:** https://klink-xi.vercel.app (best on a phone)
 - **Demo video:** about 2 minutes, phone view, submitted with the entry (not stored in this repo). It is real typing and real payments on testnet: a send, a bill paid through escrow, and a repeating payment.
- **License:** [MIT](LICENSE).
+- **Built with AI assistance:** see [AI disclosure](#ai-disclosure). **License:** [MIT](LICENSE).
 
 ![Klink on a phone: a bill in escrow, paid with its delivery reference, and a repeating payment](docs/screenshots/klink-phone.png)
 
