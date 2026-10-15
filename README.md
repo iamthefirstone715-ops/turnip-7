@@ -182,6 +182,42 @@ The app is hosted on Vercel. The worker runs as `/api/tick` on the same deployme
 
 ---
 
+## Why Monad
+
+Klink is for people who don't think of themselves as crypto users, so the chain has to stay out of the way. Monad does that in three ways:
+
+- **Payments that feel like a chat message.** A send, a bill and each repeating run are on-chain transactions the user waits for. Monad's sub-second blocks mean the card in the chat moves from "sending" to "done" while the user is still looking at it, and the escrow steps of a bill (requested, delivered, settled) show up live instead of after a long wait.
+- **Fees small enough to hide in a USDC balance.** Every operation pays its own gas in USDC through our paymaster. A transfer cost the user about 0.0034 USDC net on testnet (see *Gas in USDC*). Fees that low are what make "hold only USDC, never think about gas" an honest promise, and they leave room for one escrow order per bill and for a bill every minute in a repeating schedule.
+- **Full EVM, so the standard account stack just works.** ERC-4337 EntryPoint v0.7, a `permissionless` SimpleAccount, Pimlico's bundler, OpenZeppelin's `SafeERC20` and Circle's USDC all run on Monad unchanged. We spent the build on the product (names, escrow, schedules, the assistant), not on porting infrastructure.
+
+One Monad detail shaped the paymaster: gas is charged on the gas *limit*, not on gas used, so the paymaster prepays the worst-case fee and refunds the difference in `postOp`.
+
+---
+
+## Technology stack and attributions
+
+| Layer | What we used | Role in Klink |
+|---|---|---|
+| Contracts | Solidity, [Foundry](https://github.com/foundry-rs/foundry) with `forge-std` (Apache-2.0) | Build, tests, fuzzing, deploy scripts |
+| Contracts | [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) v5.1.0 (MIT) | `IERC20`, `SafeERC20` in `BillPay` and `USDCPaymaster` |
+| Contracts | [eth-infinitism account-abstraction](https://github.com/eth-infinitism/account-abstraction) v0.7.0 (GPL-3.0) | `BasePaymaster`, `IEntryPoint`, `PackedUserOperation`, which `USDCPaymaster` builds on; EntryPoint v0.7 in tests |
+| Accounts | [permissionless](https://github.com/pimlicolabs/permissionless.js) (MIT) | SimpleAccount smart accounts and the Pimlico client |
+| Accounts | [Pimlico](https://pimlico.io) public bundler | Submits user operations to EntryPoint v0.7 |
+| Login and wallet | [Privy](https://privy.io) (`@privy-io/react-auth`) | Google/email login and the embedded wallet that owns each account |
+| Chain client | [viem](https://github.com/wevm/viem), [ox](https://github.com/wevm/ox) (MIT) | RPC, contract calls, encoding |
+| Auth | [jose](https://github.com/panva/jose) (MIT) | Verifies Privy access tokens against Privy's JWKS in `/api/schedule` |
+| App | Next.js 16, React 19, TypeScript, Tailwind CSS 4 | The app and its API routes, hosted on Vercel |
+| Fonts | Geist, Geist Mono, Bebas Neue via `next/font/google` (SIL Open Font License) | Typography |
+| Bills | [VTpass](https://vtpass.com) sandbox API | Airtime, data, electricity and TV purchases |
+| Assistant | Claude Haiku (Anthropic) through the Orbio gateway | Turns one sentence into a payment card (see *The assistant and chat*) |
+| Stablecoin | Circle USDC on Monad testnet | The only balance a user holds |
+
+All four contracts in `contracts/src` (`UsernameRegistry`, `USDCPaymaster`, `BillPay`, `Scheduler`) and the worker, keeper and app code were written for this project. The libraries above are used as dependencies; none of their code is copied into this repository (`contracts/lib` is installed by `forge install` and not committed).
+
+**Originality.** The repository started from the `create-next-app` template (first commit, 2026-09-26). Everything else, including all contracts, the worker and the app, was built during the hackathon; the full history is in the commit log.
+
+---
+
 ## AI disclosure
 
 We used AI heavily to build this project, and we want that to be clear.
