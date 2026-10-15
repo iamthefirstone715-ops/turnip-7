@@ -6,7 +6,7 @@ Built for Monad Metropolis, Consumer Products & Payments track. Runs on Monad te
 
 - **Live app:** https://klink-xi.vercel.app (best on a phone)
 - **Demo video:** about 2 minutes, phone view, submitted with the entry (not stored in this repo). It is real typing and real payments on testnet: a send, a bill paid through escrow, and a repeating payment.
-- **Built with AI assistance:** see [AI disclosure](#ai-disclosure). **License:** [MIT](LICENSE).
+- **License:** [MIT](LICENSE).
 
 ![Klink on a phone: a bill in escrow, paid with its delivery reference, and a repeating payment](docs/screenshots/klink-phone.png)
 
@@ -215,18 +215,6 @@ One Monad detail shaped the paymaster: gas is charged on the gas *limit*, not on
 All four contracts in `contracts/src` (`UsernameRegistry`, `USDCPaymaster`, `BillPay`, `Scheduler`) and the worker, keeper and app code were written for this project. The libraries above are used as dependencies; none of their code is copied into this repository (`contracts/lib` is installed by `forge install` and not committed).
 
 **Originality.** The repository started from the `create-next-app` template (first commit, 2026-09-26). Everything else, including all contracts, the worker and the app, was built during the hackathon; the full history is in the commit log.
-
----
-
-## AI disclosure
-
-We used AI heavily to build this project, and we want that to be clear.
-
-- **Code and docs:** most of the code (contracts, tests, worker, app) and this README were written with **Claude Code** (Anthropic's coding agent, Claude models) working in the repository. The team set the product, made the design decisions, decided what to build and what to drop, ran the deployments, and approved the commits. The result was checked by the tests and live runs listed above, not by trusting the model.
-- **Security review:** the review that led to the paymaster, rate-ceiling and approval fixes was itself AI-assisted. It is **not an independent audit**. Please do not treat the contracts as audited.
-- **Demo and pitch videos:** the narration is a **synthetic voice** (AI text-to-speech through Higgsfield). The screen footage is a real run of the app on testnet, driven by a script.
-- **In the product:** the assistant that turns a sentence into a payment card is **Claude Haiku**, reached through the Orbio gateway. It only fills a form; every field is re-validated in code and the user confirms before anything is signed. See *The assistant and chat*.
-- **Logo and graphics:** made with code (SVG and HTML), not from an image generator.
 
 ## Run it
 
